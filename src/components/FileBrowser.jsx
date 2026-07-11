@@ -1,4 +1,21 @@
 import React, { useState, useEffect } from 'react';
+import FileTypeIcon from './FileTypeIcon';
+import { 
+  FolderPlus, 
+  Folder, 
+  Trash2, 
+  Edit3, 
+  MoveRight, 
+  Grid, 
+  List, 
+  ChevronRight, 
+  Home, 
+  CornerDownRight, 
+  Clock, 
+  ShieldCheck,
+  Search,
+  ExternalLink
+} from 'lucide-react';
 
 const FILES_API = `${window.location.origin}/files`;
 const FOLDERS_API = `${window.location.origin}/folders`;
@@ -11,13 +28,15 @@ export default function FileBrowser({
   currentFolderName,
   setCurrentFolderName,
   breadcrumbs,
-  setBreadcrumbs
+  setBreadcrumbs,
+  onFilesUpdate
 }) {
   const [subfolders, setSubfolders] = useState([]);
   const [files, setFiles] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
   
-  // Modal state for moving files/folders
+  // Move item modal state
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [moveTargetItem, setMoveTargetItem] = useState(null); // { id, name, type: 'file' | 'folder' }
   const [allFolders, setAllFolders] = useState([]);
@@ -26,20 +45,25 @@ export default function FileBrowser({
   const formatBytes = (bytes) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB'];
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
-  const getFileEmoji = (fileType) => {
-    if (fileType === 'image') return '📷';
-    if (fileType === 'pdf') return '📕';
-    if (fileType === 'excel') return '📊';
-    if (fileType === 'word-txt') return '📝';
-    return '📄';
+  const formatDate = (dateStr) => {
+    if (!dateStr) return 'Recent';
+    try {
+      return new Date(dateStr).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+    } catch {
+      return dateStr;
+    }
   };
 
-  // 1. Fetch current directory content
+  // Fetch directory content
   const fetchDirectory = async () => {
     if (!userName) return;
     setIsLoading(true);
@@ -52,10 +76,18 @@ export default function FileBrowser({
       const res = await fetch(url);
       const data = await res.json();
       if (res.ok && data.status) {
-        setSubfolders(data.data.subfolders || []);
-        setFiles(data.data.files || []);
+        const sub = data.data.subfolders || [];
+        const fls = data.data.files || [];
+        setSubfolders(sub);
+        setFiles(fls);
         setCurrentFolderName(data.data.currentFolderName || 'Home');
         setBreadcrumbs(data.data.breadcrumbs || []);
+        
+        // Notify parent application of files list so StatsCard can update
+        if (onFilesUpdate) {
+          // Fallback to fetch all files flatly for StatsCard
+          fetchAllFilesFlat();
+        }
       } else {
         addLog('ERROR', `Failed to load directory: ${data.message}`);
       }
@@ -66,12 +98,24 @@ export default function FileBrowser({
     }
   };
 
-  // Re-fetch when folder or user changes
+  // Fetch flat file list for StatsCard aggregation
+  const fetchAllFilesFlat = async () => {
+    try {
+      const res = await fetch(`${FILES_API}?userName=${encodeURIComponent(userName.trim())}`);
+      const data = await res.json();
+      if (res.ok && data.status && onFilesUpdate) {
+        onFilesUpdate(data.data || []);
+      }
+    } catch (err) {
+      console.error('Failed flat files fetch:', err);
+    }
+  };
+
   useEffect(() => {
     fetchDirectory();
   }, [currentFolderId, userName]);
 
-  // 2. Handle folder creation
+  // Handle folder creation
   const handleCreateFolder = async () => {
     const folderName = prompt('Enter name for the new folder:');
     if (!folderName || !folderName.trim()) return;
@@ -97,7 +141,7 @@ export default function FileBrowser({
     }
   };
 
-  // 3. Handle folder renaming
+  // Rename folder
   const handleRenameFolder = async (folderId, oldName, e) => {
     e.stopPropagation();
     const newName = prompt(`Rename folder "${oldName}" to:`, oldName);
@@ -121,12 +165,12 @@ export default function FileBrowser({
     }
   };
 
-  // 4. Handle folder deletion
+  // Delete folder
   const handleDeleteFolder = async (folderId, folderName, e) => {
     e.stopPropagation();
     if (!confirm(`WARNING: Deleting folder "${folderName}" will delete ALL its subfolders and files recursively!\nAre you sure you want to proceed?`)) return;
 
-    addLog('INFO', `Deleting folder "${folderName}" recursively...`);
+    addLog('INFO', `Deleting folder "${folderName}"...`);
     try {
       const res = await fetch(`${FOLDERS_API}/${folderId}?userName=${encodeURIComponent(userName)}`, {
         method: 'DELETE'
@@ -143,7 +187,7 @@ export default function FileBrowser({
     }
   };
 
-  // 5. Handle file deletion
+  // Delete file
   const handleDeleteFile = async (fileId, fileName, e) => {
     e.stopPropagation();
     if (!confirm(`Are you sure you want to delete "${fileName}"?`)) return;
@@ -165,33 +209,31 @@ export default function FileBrowser({
     }
   };
 
-  // 6. Move Dialog Modal logic
+  // Open move modal
   const openMoveModal = async (itemId, itemName, type, e) => {
     e.stopPropagation();
     setMoveTargetItem({ id: itemId, name: itemName, type });
     setSelectedDestId('root');
     
-    // Fetch all folders flatly for selection
     try {
       const res = await fetch(`${FOLDERS_API}/all?userName=${encodeURIComponent(userName)}`);
       const data = await res.json();
       if (res.ok && data.status) {
-        // Exclude the folder itself and its descendants if we are moving a folder
         let available = data.data || [];
         if (type === 'folder') {
           available = available.filter(f => f.id !== itemId);
-          // Cyclic parent validation is handled on BE, but filtering the current folder prevents basic mistakes
         }
         setAllFolders(available);
         setShowMoveModal(true);
       } else {
-        addLog('ERROR', `Could not fetch folders for moving: ${data.message}`);
+        addLog('ERROR', `Could not fetch target folders: ${data.message}`);
       }
     } catch (err) {
       addLog('ERROR', `Network error loading folders: ${err.message}`);
     }
   };
 
+  // Submit move
   const handleMoveSubmit = async () => {
     if (!moveTargetItem) return;
     const destFolderId = selectedDestId === 'root' ? null : Number(selectedDestId);
@@ -203,10 +245,8 @@ export default function FileBrowser({
 
     let url = `${endpoint}?userName=${encodeURIComponent(userName)}`;
     if (destFolderId) {
-      url += `&parentId=${destFolderId}`; // folders use parentId
+      url += `&parentId=${destFolderId}`;
     }
-
-    // files use folderId
     if (!isFolder && destFolderId) {
       url += `&folderId=${destFolderId}`;
     }
@@ -231,157 +271,135 @@ export default function FileBrowser({
   };
 
   return (
-    <div className="file-browser">
-      {/* Explorer toolbar */}
-      <div className="explorer-toolbar" style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        gap: '1rem',
-        marginBottom: '1.5rem',
-        flexWrap: 'wrap'
-      }}>
-        {/* Dynamic Breadcrumbs */}
-        <div className="breadcrumbs" style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.4rem',
-          fontSize: '0.95rem',
-          flexWrap: 'wrap',
-          background: 'rgba(255, 255, 255, 0.02)',
-          padding: '0.5rem 0.75rem',
-          borderRadius: '8px',
-          border: '1px solid var(--border-color)'
-        }}>
-          <span 
-            className="breadcrumb-item" 
-            style={{ cursor: 'pointer', color: currentFolderId === null ? 'var(--accent-end)' : 'var(--text-secondary)' }}
+    <div className="space-y-6">
+      {/* Explorer Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/5 pb-4">
+        {/* Terminal path breadcrumbs */}
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/3 border border-white/5 text-xs font-mono text-slate-300 max-w-full overflow-x-auto whitespace-nowrap">
+          <button 
+            className={`hover:text-indigo-400 flex items-center gap-1 transition-colors ${currentFolderId === null ? 'text-indigo-400 font-bold' : 'text-slate-400'}`}
             onClick={() => setCurrentFolderId(null)}
           >
-            🏠 Home
-          </span>
+            <Home className="w-3.5 h-3.5" />
+            root
+          </button>
+          
           {breadcrumbs.map((bc, index) => (
             <React.Fragment key={bc.id}>
-              <span style={{ color: 'var(--text-secondary)' }}>/</span>
-              <span 
-                className="breadcrumb-item" 
-                style={{
-                  cursor: 'pointer',
-                  color: index === breadcrumbs.length - 1 ? 'var(--accent-end)' : 'var(--text-secondary)'
-                }}
+              <ChevronRight className="w-3 h-3 text-slate-500 flex-shrink-0" />
+              <button 
+                className={`hover:text-indigo-400 transition-colors ${index === breadcrumbs.length - 1 ? 'text-indigo-400 font-bold' : 'text-slate-400'}`}
                 onClick={() => setCurrentFolderId(bc.id)}
               >
                 {bc.name}
-              </span>
+              </button>
             </React.Fragment>
           ))}
         </div>
 
-        <button 
-          onClick={handleCreateFolder} 
-          className="action-btn"
-          style={{
-            padding: '0.5rem 1rem',
-            fontSize: '0.85rem',
-            background: 'rgba(99, 102, 241, 0.15)',
-            border: '1px solid var(--accent-start)',
-            color: 'var(--text-primary)',
-            borderRadius: '8px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.4rem'
-          }}
-        >
-          <span>📁+</span> New Folder
-        </button>
+        {/* Controls Layout + New Folder */}
+        <div className="flex items-center gap-2.5">
+          {/* Toggle View mode */}
+          <div className="flex items-center rounded-xl bg-white/3 border border-white/5 p-1">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`p-1.5 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:text-white'}`}
+              title="Grid View"
+            >
+              <Grid className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`p-1.5 rounded-lg transition-all ${viewMode === 'list' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:text-white'}`}
+              title="List View"
+            >
+              <List className="w-4 h-4" />
+            </button>
+          </div>
+
+          <button
+            onClick={handleCreateFolder}
+            className="h-9 px-4 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-white text-xs font-bold hover:bg-indigo-500/20 transition-all flex items-center gap-1.5 cursor-pointer"
+          >
+            <FolderPlus className="w-3.5 h-3.5" />
+            New Folder
+          </button>
+        </div>
       </div>
 
-      <div className="browser-results" style={{ minHeight: '200px', position: 'relative' }}>
+      {/* Explorer Results */}
+      <div className="relative min-h-[220px]">
         {isLoading && (
-          <div className="loading-overlay" style={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            padding: '2rem'
-          }}>
-            <div className="loading-spinner">Loading files...</div>
+          <div className="absolute inset-0 flex items-center justify-center bg-black/10 backdrop-blur-[1px] z-10 rounded-2xl">
+            <div className="flex flex-col items-center gap-2 text-xs font-semibold text-slate-400">
+              <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+              Scanning filesystem...
+            </div>
           </div>
         )}
-        
+
         {!isLoading && subfolders.length === 0 && files.length === 0 && (
-          <div className="empty-state" style={{ padding: '3rem 1rem', textAlign: 'center' }}>
-            <span className="empty-icon" style={{ fontSize: '3rem', opacity: '0.5' }}>📂</span>
-            <p style={{ marginTop: '0.5rem', color: 'var(--text-secondary)' }}>This directory is empty.</p>
+          <div className="flex flex-col items-center justify-center py-16 text-center glass rounded-2xl border border-white/5">
+            <Folder className="w-10 h-10 text-slate-500 stroke-[1.5] mb-3 animate-float" />
+            <p className="text-sm font-semibold text-slate-300">This directory is empty</p>
+            <p className="text-xs text-slate-500 mt-1">Upload files or create subdirectories to populate this node</p>
           </div>
         )}
 
         {!isLoading && (subfolders.length > 0 || files.length > 0) && (
-          <div className="explorer-grid" style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '1rem'
-          }}>
+          <div className="space-y-6">
             {/* Render Folders First */}
             {subfolders.length > 0 && (
-              <div className="folders-section">
-                <h5 style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
+              <div className="space-y-2">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block pl-1">
                   Folders ({subfolders.length})
-                </h5>
-                <div className="files-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.75rem' }}>
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5">
                   {subfolders.map(folder => (
-                    <div 
-                      key={folder.id} 
-                      className="file-card folder-card glass"
+                    <div
+                      key={folder.id}
                       onClick={() => {
                         setCurrentFolderId(folder.id);
                         setCurrentFolderName(folder.name);
                       }}
-                      style={{
-                        cursor: 'pointer',
-                        padding: '0.75rem',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: '12px',
-                        transition: 'transform 0.2s, border-color 0.2s'
-                      }}
-                      onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--accent-start)'}
-                      onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border-color)'}
+                      className="group p-4 bg-white/2 border border-white/5 rounded-2xl hover:border-indigo-500/30 transition-all duration-300 hover-lift-3d cursor-pointer flex flex-col justify-between h-[104px]"
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                        <span style={{ fontSize: '1.8rem' }}>📁</span>
-                        <div className="card-actions" onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: '0.3rem' }}>
-                          <button 
+                      <div className="flex items-start justify-between">
+                        <div className="p-2.5 bg-gradient-to-br from-indigo-500/10 to-cyan-500/5 rounded-xl text-indigo-400 group-hover:scale-105 transition-transform duration-300 border border-white/5">
+                          <Folder className="w-5 h-5" />
+                        </div>
+                        {/* Quick Hover Actions */}
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 backdrop-blur-sm border border-white/5 rounded-lg p-0.5" onClick={e => e.stopPropagation()}>
+                          <button
                             onClick={(e) => openMoveModal(folder.id, folder.name, 'folder', e)}
                             title="Move folder"
-                            style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.85rem' }}
+                            className="p-1 text-slate-400 hover:text-white rounded"
                           >
-                            ↗️
+                            <MoveRight className="w-3 h-3" />
                           </button>
-                          <button 
+                          <button
                             onClick={(e) => handleRenameFolder(folder.id, folder.name, e)}
                             title="Rename folder"
-                            style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.85rem' }}
+                            className="p-1 text-slate-400 hover:text-white rounded"
                           >
-                            ✏️
+                            <Edit3 className="w-3 h-3" />
                           </button>
-                          <button 
+                          <button
                             onClick={(e) => handleDeleteFolder(folder.id, folder.name, e)}
                             title="Delete folder"
-                            style={{ background: 'none', border: 'none', color: 'var(--text-error)', cursor: 'pointer', fontSize: '0.85rem' }}
+                            className="p-1 text-red-400 hover:text-red-300 rounded"
                           >
-                            ✕
+                            <Trash2 className="w-3 h-3" />
                           </button>
                         </div>
                       </div>
-                      <h5 style={{ 
-                        fontSize: '0.9rem', 
-                        fontWeight: '500', 
-                        whiteSpace: 'nowrap', 
-                        overflow: 'hidden', 
-                        textOverflow: 'ellipsis',
-                        margin: 0
-                      }} title={folder.name}>
-                        {folder.name}
-                      </h5>
+                      
+                      <div className="min-w-0 pt-2">
+                        <h5 className="text-xs font-bold text-white truncate" title={folder.name}>
+                          {folder.name}
+                        </h5>
+                        <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider mt-0.5">Directory Node</p>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -390,57 +408,106 @@ export default function FileBrowser({
 
             {/* Render Files */}
             {files.length > 0 && (
-              <div className="files-section">
-                <h5 style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.05em', marginBottom: '0.5rem', marginTop: '0.5rem' }}>
+              <div className="space-y-2">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block pl-1">
                   Files ({files.length})
-                </h5>
-                <div className="files-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.75rem' }}>
-                  {files.map(file => (
-                    <div key={file.id} className="file-card glass" style={{
-                      padding: '0.75rem',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '12px'
-                    }}>
-                      <div className="file-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                        <span className="file-card-icon" style={{ fontSize: '1.8rem' }}>{getFileEmoji(file.fileType)}</span>
-                        <div className="card-actions" style={{ display: 'flex', gap: '0.3rem' }}>
-                          <button 
-                            className="move-file-btn"
-                            onClick={(e) => openMoveModal(file.id, file.originalName, 'file', e)}
-                            title="Move file"
-                            style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.85rem' }}
-                          >
-                            ↗️
-                          </button>
-                          <button 
-                            className="delete-file-btn" 
-                            onClick={(e) => handleDeleteFile(file.id, file.originalName, e)}
-                            title="Delete file"
-                            style={{ background: 'none', border: 'none', color: 'var(--text-error)', cursor: 'pointer', fontSize: '0.85rem' }}
-                          >
-                            ✕
-                          </button>
+                </span>
+                
+                {viewMode === 'grid' ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5">
+                    {files.map(file => (
+                      <div
+                        key={file.id}
+                        className="group p-4 bg-white/2 border border-white/5 rounded-2xl hover:border-cyan-500/30 transition-all duration-300 hover-lift-3d flex flex-col justify-between h-[116px]"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="p-2.5 bg-white/3 rounded-xl text-slate-400 border border-white/5 group-hover:scale-105 transition-transform duration-300">
+                            <FileTypeIcon fileName={file.originalName} className="w-5 h-5" />
+                          </div>
+                          {/* Quick Hover Actions */}
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 backdrop-blur-sm border border-white/5 rounded-lg p-0.5" onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={(e) => openMoveModal(file.id, file.originalName, 'file', e)}
+                              title="Move file"
+                              className="p-1 text-slate-400 hover:text-white rounded"
+                            >
+                              <MoveRight className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={(e) => handleDeleteFile(file.id, file.originalName, e)}
+                              title="Delete file"
+                              className="p-1 text-red-400 hover:text-red-300 rounded"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="min-w-0 pt-2">
+                          <h5 className="text-xs font-bold text-white truncate" title={file.originalName}>
+                            {file.originalName}
+                          </h5>
+                          <div className="flex items-center justify-between text-[9px] text-slate-500 font-semibold mt-0.5">
+                            <span>{formatBytes(file.sizeBytes)}</span>
+                            <span>•</span>
+                            <span className="flex items-center gap-0.5">
+                              <Clock className="w-2.5 h-2.5" />
+                              {formatDate(file.fileCreatedDate)}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                      <div className="file-card-body">
-                        <h5 className="file-card-name" title={file.originalName} style={{
-                          fontSize: '0.9rem',
-                          fontWeight: '500',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          margin: '0 0 0.25rem 0'
-                        }}>{file.originalName}</h5>
-                        <p className="file-card-meta" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0 }}>
-                          {formatBytes(file.sizeBytes)} • {file.fileType}
-                        </p>
-                        <p className="file-card-date" style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.2rem', margin: 0 }}>
-                          Created: {file.fileCreatedDate || 'Unknown'}
-                        </p>
+                    ))}
+                  </div>
+                ) : (
+                  /* List View Mode */
+                  <div className="border border-white/5 rounded-2xl overflow-hidden glass divide-y divide-white/5">
+                    {files.map(file => (
+                      <div
+                        key={file.id}
+                        className="group flex items-center justify-between gap-4 p-3.5 hover:bg-white/2 transition-smooth"
+                      >
+                        <div className="flex items-center gap-3.5 min-w-0">
+                          <div className="p-2 bg-white/4 rounded-xl text-slate-400 border border-white/5 flex-shrink-0">
+                            <FileTypeIcon fileName={file.originalName} className="w-4.5 h-4.5" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-white truncate" title={file.originalName}>
+                              {file.originalName}
+                            </p>
+                            <p className="text-[10px] text-slate-400 mt-0.5">
+                              {formatBytes(file.sizeBytes)} • {file.fileType || file.originalName.split('.').pop() || 'File'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4 flex-shrink-0">
+                          <span className="text-[10px] text-slate-500 font-medium flex items-center gap-0.5 hidden sm:flex">
+                            <Clock className="w-3 h-3" />
+                            Uploaded: {formatDate(file.fileCreatedDate)}
+                          </span>
+
+                          <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 backdrop-blur-sm border border-white/5 rounded-lg p-0.5">
+                            <button
+                              onClick={(e) => openMoveModal(file.id, file.originalName, 'file', e)}
+                              title="Move file"
+                              className="p-1 text-slate-400 hover:text-white rounded"
+                            >
+                              <MoveRight className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={(e) => handleDeleteFile(file.id, file.originalName, e)}
+                              title="Delete file"
+                              className="p-1 text-red-400 hover:text-red-300 rounded"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -449,50 +516,26 @@ export default function FileBrowser({
 
       {/* Move Dialog Modal Overlay */}
       {showMoveModal && moveTargetItem && (
-        <div className="modal-overlay" style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.65)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 9999,
-          backdropFilter: 'blur(8px)',
-          padding: '1.5rem'
-        }}>
-          <div className="modal-content glass" style={{
-            background: 'var(--bg-card)',
-            border: '1px solid var(--border-color)',
-            borderRadius: '20px',
-            padding: '1.5rem',
-            width: '100%',
-            maxWidth: '360px',
-            boxShadow: 'var(--shadow-premium)'
-          }}>
-            <h4 style={{ marginBottom: '1rem', color: 'var(--text-primary)', fontWeight: '600' }}>
-              Move {moveTargetItem.type === 'file' ? 'File' : 'Folder'}
-            </h4>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-              Select destination for <strong>{moveTargetItem.name}</strong>:
-            </p>
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center p-4 z-[9999] backdrop-blur-md animate-fadeInUp">
+          <div className="w-full max-w-sm glass-premium border border-white/10 rounded-3xl p-6 shadow-2xl space-y-5 animate-rotateIn3D">
+            <div>
+              <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                <CornerDownRight className="w-4 h-4 text-indigo-400 animate-pulse" />
+                Relocate {moveTargetItem.type === 'file' ? 'Asset' : 'Directory'}
+              </h4>
+              <p className="text-xs text-slate-400 mt-1">
+                Select target vault node for <span className="font-semibold text-indigo-300">{moveTargetItem.name}</span>:
+              </p>
+            </div>
 
-            <div className="select-container" style={{ marginBottom: '1.5rem' }}>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Destination Node</label>
               <select 
                 value={selectedDestId} 
                 onChange={(e) => setSelectedDestId(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '0.75rem',
-                  borderRadius: '10px',
-                  background: '#111827',
-                  color: '#fff',
-                  border: '1px solid var(--border-color)'
-                }}
+                className="w-full h-11 px-3.5 rounded-xl bg-black border border-white/10 text-white text-xs font-semibold focus-glow transition-all focus:outline-none"
               >
-                <option value="root">🏠 Home (Root)</option>
+                <option value="root">🏠 Home (Root Node)</option>
                 {allFolders.map(folder => (
                   <option key={folder.id} value={folder.id}>
                     📁 {folder.name}
@@ -501,32 +544,18 @@ export default function FileBrowser({
               </select>
             </div>
 
-            <div className="modal-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-white/5">
               <button 
                 onClick={() => { setShowMoveModal(false); setMoveTargetItem(null); }}
-                style={{
-                  padding: '0.5rem 1rem',
-                  background: 'transparent',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-secondary)',
-                  borderRadius: '8px',
-                  cursor: 'pointer'
-                }}
+                className="px-4 h-9 rounded-xl border border-white/10 text-slate-400 text-xs font-semibold hover:text-white transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button 
                 onClick={handleMoveSubmit}
-                style={{
-                  padding: '0.5rem 1rem',
-                  background: 'var(--accent-start)',
-                  border: 'none',
-                  color: '#fff',
-                  borderRadius: '8px',
-                  cursor: 'pointer'
-                }}
+                className="px-4 h-9 rounded-xl bg-indigo-500 text-white text-xs font-bold hover:bg-indigo-600 transition-colors shadow-lg shadow-indigo-500/20 cursor-pointer"
               >
-                Confirm Move
+                Move Asset
               </button>
             </div>
           </div>
