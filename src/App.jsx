@@ -156,7 +156,9 @@ function App() {
                   addLog={addLog} 
                   userName={userName}
                   currentFolderId={currentFolderId}
+                  setCurrentFolderId={setCurrentFolderId}
                   currentFolderName={currentFolderName}
+                  setCurrentFolderName={setCurrentFolderName}
                 />
               ) : (
                 <FileBrowser 

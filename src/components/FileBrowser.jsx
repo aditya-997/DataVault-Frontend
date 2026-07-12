@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import FileTypeIcon from './FileTypeIcon';
 import { 
   FolderPlus, 
@@ -35,6 +35,40 @@ export default function FileBrowser({
   const [files, setFiles] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
+  const [visibleFilesCount, setVisibleFilesCount] = useState(10);
+  const scrollContainerRef = useRef(null);
+
+  // Hybrid pagination tracking states
+  const [loadedPage, setLoadedPage] = useState(0);
+  const [hasMoreOnServer, setHasMoreOnServer] = useState(true);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+
+  const handleScroll = (e) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop - clientHeight < 40) {
+      if (visibleFilesCount < files.length) {
+        setVisibleFilesCount(prev => {
+          const nextVal = prev + 10;
+          addLog('INFO', `Lazy loading next items (rendered: ${Math.min(nextVal, files.length)}/${files.length})`);
+          
+          // Trigger prefetch if remaining loaded items is 5 or less
+          if (files.length - nextVal <= 5 && hasMoreOnServer && !isFetchingMore) {
+            const nextPage = loadedPage + 1;
+            addLog('INFO', `Prefetching next block of 50 files from backend (page: ${nextPage})`);
+            fetchDirectory(nextPage, true);
+          }
+          return nextVal;
+        });
+      } else {
+        // Fallback: fetched all current, but backend has more
+        if (hasMoreOnServer && !isFetchingMore) {
+          const nextPage = loadedPage + 1;
+          addLog('INFO', `Fetching next block of 50 files from backend (page: ${nextPage})`);
+          fetchDirectory(nextPage, true);
+        }
+      }
+    }
+  };
   
   // Move item modal state
   const [showMoveModal, setShowMoveModal] = useState(false);
@@ -64,10 +98,15 @@ export default function FileBrowser({
   };
 
   // Fetch directory content
-  const fetchDirectory = async () => {
+  const fetchDirectory = async (page = 0, append = false) => {
     if (!userName) return;
-    setIsLoading(true);
-    let url = `${FILES_API}/browse?userName=${encodeURIComponent(userName.trim())}`;
+    if (page === 0) {
+      setIsLoading(true);
+    } else {
+      setIsFetchingMore(true);
+    }
+    
+    let url = `${FILES_API}/browse?userName=${encodeURIComponent(userName.trim())}&page=${page}&size=50`;
     if (currentFolderId) {
       url += `&folderId=${currentFolderId}`;
     }
@@ -78,8 +117,16 @@ export default function FileBrowser({
       if (res.ok && data.status) {
         const sub = data.data.subfolders || [];
         const fls = data.data.files || [];
+        
         setSubfolders(sub);
-        setFiles(fls);
+        if (append) {
+          setFiles(prev => [...prev, ...fls]);
+        } else {
+          setFiles(fls);
+        }
+        
+        setHasMoreOnServer(fls.length === 50);
+        setLoadedPage(page);
         setCurrentFolderName(data.data.currentFolderName || 'Home');
         setBreadcrumbs(data.data.breadcrumbs || []);
         
@@ -95,6 +142,7 @@ export default function FileBrowser({
       addLog('ERROR', `Network error loading directory: ${err.message}`);
     } finally {
       setIsLoading(false);
+      setIsFetchingMore(false);
     }
   };
 
@@ -112,7 +160,13 @@ export default function FileBrowser({
   };
 
   useEffect(() => {
-    fetchDirectory();
+    setVisibleFilesCount(10);
+    setLoadedPage(0);
+    setHasMoreOnServer(true);
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0;
+    }
+    fetchDirectory(0, false);
   }, [currentFolderId, userName]);
 
   // Handle folder creation
@@ -328,7 +382,11 @@ export default function FileBrowser({
       </div>
 
       {/* Explorer Results */}
-      <div className="relative min-h-[220px]">
+      <div 
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="relative max-h-[480px] overflow-y-auto pr-1.5 border border-white/5 rounded-2xl bg-white/[0.01] p-3.5"
+      >
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/10 backdrop-blur-[1px] z-10 rounded-2xl">
             <div className="flex flex-col items-center gap-2 text-xs font-semibold text-slate-400">
@@ -415,7 +473,7 @@ export default function FileBrowser({
                 
                 {viewMode === 'grid' ? (
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5">
-                    {files.map(file => (
+                    {files.slice(0, visibleFilesCount).map(file => (
                       <div
                         key={file.id}
                         className="group p-4 bg-white/2 border border-white/5 rounded-2xl hover:border-cyan-500/30 transition-all duration-300 hover-lift-3d flex flex-col justify-between h-[116px]"
@@ -462,7 +520,7 @@ export default function FileBrowser({
                 ) : (
                   /* List View Mode */
                   <div className="border border-white/5 rounded-2xl overflow-hidden glass divide-y divide-white/5">
-                    {files.map(file => (
+                    {files.slice(0, visibleFilesCount).map(file => (
                       <div
                         key={file.id}
                         className="group flex items-center justify-between gap-4 p-3.5 hover:bg-white/2 transition-smooth"
@@ -506,6 +564,19 @@ export default function FileBrowser({
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {/* Infinite Scroll Loader Indicator */}
+                {(visibleFilesCount < files.length || hasMoreOnServer) && (
+                  <div className="text-center text-[10px] text-slate-500 py-4 font-semibold tracking-wider animate-pulse flex items-center justify-center gap-1.5 border-t border-white/5 mt-3">
+                    <span className="inline-block h-3 w-3 animate-spin rounded-full border border-slate-500 border-t-transparent" />
+                    {isFetchingMore 
+                      ? "Fetching assets from security core..." 
+                      : (visibleFilesCount < files.length)
+                        ? `Scroll down to display more assets (${files.length - visibleFilesCount} local files remaining)`
+                        : "Scroll down to fetch next block from server..."
+                    }
                   </div>
                 )}
               </div>

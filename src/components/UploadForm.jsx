@@ -1,15 +1,35 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { sha256 } from 'js-sha256';
 import FileTypeIcon from './FileTypeIcon';
-import { Upload, X, ShieldAlert, CheckCircle2, AlertCircle, RefreshCw, Trash2, Cpu } from 'lucide-react';
+import { Upload, X, ShieldAlert, CheckCircle2, AlertCircle, RefreshCw, Trash2, Cpu, FolderOpen, Home, ChevronRight, Folder } from 'lucide-react';
 
 const API_URL = `${window.location.origin}/upload/media`;
 
-export default function UploadForm({ addLog, userName, currentFolderId, currentFolderName }) {
+export default function UploadForm({ addLog, userName, currentFolderId, setCurrentFolderId, currentFolderName, setCurrentFolderName }) {
   const [files, setFiles] = useState([]); // { id, file, progress, status, message }
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [subfolders, setSubfolders] = useState([]);
+  const [breadcrumbsList, setBreadcrumbsList] = useState([]);
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!userName) return;
+    let url = `${window.location.origin}/files/browse?userName=${encodeURIComponent(userName.trim())}`;
+    if (currentFolderId) {
+      url += `&folderId=${currentFolderId}`;
+    }
+    fetch(url)
+      .then(res => res.json())
+      .then(data => {
+        if (data.status) {
+          setSubfolders(data.data.subfolders || []);
+          setBreadcrumbsList(data.data.breadcrumbs || []);
+          setCurrentFolderName(data.data.currentFolderName || 'Home');
+        }
+      })
+      .catch(err => console.error("Failed to browse in upload form:", err));
+  }, [currentFolderId, userName]);
 
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -204,6 +224,78 @@ export default function UploadForm({ addLog, userName, currentFolderId, currentF
 
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-6">
+      {/* Destination Folder Selector (Breadcrumbs & Subfolders card navigation) */}
+      <div className="space-y-3.5 p-4 bg-white/2 border border-white/5 rounded-2xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/5 pb-3">
+          <div className="flex items-center gap-2 text-slate-400 text-xs">
+            <FolderOpen className="w-4 h-4 text-indigo-400" />
+            <span>Upload Destination:</span>
+            <strong className="text-white">/{currentFolderName}</strong>
+          </div>
+          
+          {/* Breadcrumbs Path */}
+          <div className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-black border border-white/10 text-[10px] font-mono text-slate-300 max-w-full overflow-x-auto whitespace-nowrap">
+            <button 
+              type="button"
+              className={`hover:text-indigo-400 flex items-center gap-1 transition-colors ${currentFolderId === null ? 'text-indigo-400 font-bold' : 'text-slate-400'}`}
+              onClick={() => {
+                setCurrentFolderId(null);
+                setCurrentFolderName('Home');
+              }}
+              disabled={isUploading}
+            >
+              <Home className="w-3.5 h-3.5" />
+              root
+            </button>
+            
+            {breadcrumbsList.map((bc, index) => (
+              <React.Fragment key={bc.id}>
+                <ChevronRight className="w-2.5 h-2.5 text-slate-500 flex-shrink-0" />
+                <button 
+                  type="button"
+                  className={`hover:text-indigo-400 transition-colors ${index === breadcrumbsList.length - 1 ? 'text-indigo-400 font-bold' : 'text-slate-400'}`}
+                  onClick={() => {
+                    setCurrentFolderId(bc.id);
+                    setCurrentFolderName(bc.name);
+                  }}
+                  disabled={isUploading}
+                >
+                  {bc.name}
+                </button>
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+
+        {/* Subfolders Quick navigator */}
+        {subfolders.length > 0 ? (
+          <div className="space-y-1.5">
+            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block pl-1">
+              Select Subfolder (Click to traverse)
+            </span>
+            <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto pr-1">
+              {subfolders.map(folder => (
+                <button
+                  type="button"
+                  key={folder.id}
+                  onClick={() => {
+                    setCurrentFolderId(folder.id);
+                    setCurrentFolderName(folder.name);
+                  }}
+                  disabled={isUploading}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-white/2 border border-white/5 rounded-xl text-[11px] font-bold text-white hover:border-indigo-500/30 transition-all hover:bg-white/4 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Folder className="w-3.5 h-3.5 text-indigo-400" />
+                  {folder.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-[10px] text-slate-500 italic pl-1">No subfolders inside this node</p>
+        )}
+      </div>
+
       {/* Upload Zone */}
       <div
         onDragOver={handleDragOver}
