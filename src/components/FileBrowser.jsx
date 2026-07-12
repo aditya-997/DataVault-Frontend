@@ -76,6 +76,22 @@ export default function FileBrowser({
   const [allFolders, setAllFolders] = useState([]);
   const [selectedDestId, setSelectedDestId] = useState('root');
 
+  // Lightbox / Fullscreen preview file state
+  const [previewFile, setPreviewFile] = useState(null);
+
+  const handleFileClick = (file) => {
+    if (file.fileType === 'image') {
+      setPreviewFile(file);
+      addLog('INFO', `Opening preview for: ${file.originalName}`);
+    } else if (file.fileType === 'pdf') {
+      addLog('INFO', `Opening PDF view for: ${file.originalName}`);
+      window.open(`${window.location.origin}/files/${file.id}/view?userName=${encodeURIComponent(userName)}`, '_blank');
+    } else {
+      addLog('INFO', `Triggering download for: ${file.originalName}`);
+      window.open(`${window.location.origin}/files/${file.id}/download?userName=${encodeURIComponent(userName)}`, '_blank');
+    }
+  };
+
   const formatBytes = (bytes) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -473,49 +489,107 @@ export default function FileBrowser({
                 
                 {viewMode === 'grid' ? (
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5">
-                    {files.slice(0, visibleFilesCount).map(file => (
-                      <div
-                        key={file.id}
-                        className="group p-4 bg-white/2 border border-white/5 rounded-2xl hover:border-cyan-500/30 transition-all duration-300 hover-lift-3d flex flex-col justify-between h-[116px]"
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="p-2.5 bg-white/3 rounded-xl text-slate-400 border border-white/5 group-hover:scale-105 transition-transform duration-300">
-                            <FileTypeIcon fileName={file.originalName} className="w-5 h-5" />
-                          </div>
-                          {/* Quick Hover Actions */}
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 backdrop-blur-sm border border-white/5 rounded-lg p-0.5" onClick={e => e.stopPropagation()}>
-                            <button
-                              onClick={(e) => openMoveModal(file.id, file.originalName, 'file', e)}
-                              title="Move file"
-                              className="p-1 text-slate-400 hover:text-white rounded"
-                            >
-                              <MoveRight className="w-3 h-3" />
-                            </button>
-                            <button
-                              onClick={(e) => handleDeleteFile(file.id, file.originalName, e)}
-                              title="Delete file"
-                              className="p-1 text-red-400 hover:text-red-300 rounded"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </div>
+                    {files.slice(0, visibleFilesCount).map(file => {
+                      const showThumbnail = file.fileType === 'image' || file.fileType === 'pdf';
+                      
+                      if (showThumbnail) {
+                        return (
+                          <div
+                            key={file.id}
+                            onClick={() => handleFileClick(file)}
+                            className="group relative rounded-2xl overflow-hidden border border-white/5 hover:border-cyan-500/30 transition-all duration-300 hover-lift-3d h-[140px] cursor-pointer bg-black"
+                          >
+                            {/* Image fills the entire card */}
+                            <img 
+                              src={`${window.location.origin}/files/${file.id}/thumbnail?userName=${encodeURIComponent(userName)}`}
+                              alt={file.originalName}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            />
+                            
+                            {/* Overlay for actions and name, visible on hover */}
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 p-3 flex flex-col justify-between select-none">
+                              {/* Quick Hover Actions */}
+                              <div className="flex items-center gap-1 self-end bg-black/60 backdrop-blur-sm border border-white/10 rounded-lg p-0.5" onClick={e => e.stopPropagation()}>
+                                <button
+                                  onClick={(e) => openMoveModal(file.id, file.originalName, 'file', e)}
+                                  title="Move file"
+                                  className="p-1 text-slate-300 hover:text-white rounded"
+                                >
+                                  <MoveRight className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={(e) => handleDeleteFile(file.id, file.originalName, e)}
+                                  title="Delete file"
+                                  className="p-1 text-red-400 hover:text-red-300 rounded"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
 
-                        <div className="min-w-0 pt-2">
-                          <h5 className="text-xs font-bold text-white truncate" title={file.originalName}>
-                            {file.originalName}
-                          </h5>
-                          <div className="flex items-center justify-between text-[9px] text-slate-500 font-semibold mt-0.5">
-                            <span>{formatBytes(file.sizeBytes)}</span>
-                            <span>•</span>
-                            <span className="flex items-center gap-0.5">
-                              <Clock className="w-2.5 h-2.5" />
-                              {formatDate(file.fileCreatedDate)}
-                            </span>
+                              {/* Title / Meta (bottom) */}
+                              <div className="min-w-0">
+                                <h5 className="text-[11px] font-bold text-white truncate" title={file.originalName}>
+                                  {file.originalName}
+                                </h5>
+                                <div className="flex items-center justify-between text-[8px] text-slate-300 font-semibold mt-0.5">
+                                  <span>{formatBytes(file.sizeBytes)}</span>
+                                  <span className="flex items-center gap-0.5">
+                                    <Clock className="w-2 h-2" />
+                                    {formatDate(file.fileCreatedDate)}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // Non-image files card layout
+                      return (
+                        <div
+                          key={file.id}
+                          onClick={() => handleFileClick(file)}
+                          className="group p-4 bg-white/2 border border-white/5 rounded-2xl hover:border-cyan-500/30 transition-all duration-300 hover-lift-3d flex flex-col justify-between h-[140px] cursor-pointer"
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="p-2.5 bg-white/3 rounded-xl text-slate-400 border border-white/5 group-hover:scale-105 transition-transform duration-300 w-10 h-10 overflow-hidden flex items-center justify-center p-0">
+                              <FileTypeIcon fileName={file.originalName} className="w-5 h-5" />
+                            </div>
+                            {/* Quick Hover Actions */}
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 backdrop-blur-sm border border-white/5 rounded-lg p-0.5" onClick={e => e.stopPropagation()}>
+                              <button
+                                onClick={(e) => openMoveModal(file.id, file.originalName, 'file', e)}
+                                title="Move file"
+                                className="p-1 text-slate-400 hover:text-white rounded"
+                              >
+                                <MoveRight className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={(e) => handleDeleteFile(file.id, file.originalName, e)}
+                                title="Delete file"
+                                className="p-1 text-red-400 hover:text-red-300 rounded"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="min-w-0 pt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                            <h5 className="text-xs font-bold text-white truncate" title={file.originalName}>
+                              {file.originalName}
+                            </h5>
+                            <div className="flex items-center justify-between text-[9px] text-slate-500 font-semibold mt-0.5">
+                              <span>{formatBytes(file.sizeBytes)}</span>
+                              <span>•</span>
+                              <span className="flex items-center gap-0.5">
+                                <Clock className="w-2.5 h-2.5" />
+                                {formatDate(file.fileCreatedDate)}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   /* List View Mode */
@@ -523,11 +597,20 @@ export default function FileBrowser({
                     {files.slice(0, visibleFilesCount).map(file => (
                       <div
                         key={file.id}
-                        className="group flex items-center justify-between gap-4 p-3.5 hover:bg-white/2 transition-smooth"
+                        onClick={() => handleFileClick(file)}
+                        className="group flex items-center justify-between gap-4 p-3.5 hover:bg-white/2 transition-smooth cursor-pointer"
                       >
                         <div className="flex items-center gap-3.5 min-w-0">
-                          <div className="p-2 bg-white/4 rounded-xl text-slate-400 border border-white/5 flex-shrink-0">
-                            <FileTypeIcon fileName={file.originalName} className="w-4.5 h-4.5" />
+                          <div className="p-2 bg-white/4 rounded-xl text-slate-400 border border-white/5 flex-shrink-0 w-8.5 h-8.5 overflow-hidden flex items-center justify-center p-0">
+                            {file.fileType === 'image' || file.fileType === 'pdf' ? (
+                              <img 
+                                src={`${window.location.origin}/files/${file.id}/thumbnail?userName=${encodeURIComponent(userName)}`}
+                                alt={file.originalName}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <FileTypeIcon fileName={file.originalName} className="w-4.5 h-4.5" />
+                            )}
                           </div>
                           <div className="min-w-0">
                             <p className="text-xs font-bold text-white truncate" title={file.originalName}>
@@ -629,6 +712,46 @@ export default function FileBrowser({
                 Move Asset
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox / Preview Modal */}
+      {previewFile && (
+        <div className="fixed inset-0 bg-black/95 flex flex-col z-[9999] backdrop-blur-md animate-fadeIn">
+          {/* Header */}
+          <div className="h-16 border-b border-white/5 flex items-center justify-between px-6 text-white select-none">
+            <div className="min-w-0">
+              <p className="text-xs font-bold truncate max-w-xs md:max-w-md">{previewFile.originalName}</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">{formatBytes(previewFile.sizeBytes)} • {formatDate(previewFile.fileCreatedDate)}</p>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <a 
+                href={`${window.location.origin}/files/${previewFile.id}/download?userName=${encodeURIComponent(userName)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-4 h-9 rounded-xl bg-indigo-500 text-white text-xs font-bold hover:bg-indigo-600 transition-colors shadow-lg shadow-indigo-500/20 flex items-center gap-1.5 cursor-pointer decoration-none"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Download Original
+              </a>
+              <button 
+                onClick={() => setPreviewFile(null)}
+                className="p-1.5 rounded-xl border border-white/10 hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer text-xs font-semibold"
+              >
+                ✕ Close
+              </button>
+            </div>
+          </div>
+
+          {/* Image display container */}
+          <div className="flex-grow w-full flex items-center justify-center p-6 min-h-0">
+            <img 
+              src={`${window.location.origin}/files/${previewFile.id}/view?userName=${encodeURIComponent(userName)}`}
+              alt={previewFile.originalName}
+              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-scaleIn border border-white/10"
+            />
           </div>
         </div>
       )}
