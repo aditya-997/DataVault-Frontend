@@ -2,6 +2,7 @@
 # Dependencies
 # =========================================================================
 node_modules/
+.pnpm-store/
 /jspm_packages/
 
 # =========================================================================
@@ -10,6 +11,7 @@ node_modules/
 dist/
 build/
 .cache/
+.vite/
 
 # =========================================================================
 # Environment Variables & Secrets (CRITICAL)
@@ -31,7 +33,7 @@ pnpm-debug.log*
 .eslintcache
 
 # =========================================================================
-# IDEs and Editors
+# IDEs & Editor Files
 # =========================================================================
 .idea/
 .vscode/
@@ -40,6 +42,31 @@ pnpm-debug.log*
 *.njsproj
 *.sln
 *.swp
+*.swo
 
-# System files
+# =========================================================================
+# OS & System Files
+# =========================================================================
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# =========================================================================
+# Capacitor & Mobile Native Build Artifacts
+# =========================================================================
+android/.gradle/
+android/app/build/
+android/build/
+android/captures/
+android/.idea/
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/Pods/
+ios/App/DerivedData/
