@@ -1,17 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import UploadForm from './components/UploadForm';
 import FileBrowser from './components/FileBrowser';
 import VaultGate from './components/VaultGate';
 import StatsCard from './components/StatsCard';
-import { Lock, LogOut, Terminal, FolderOpen, Upload, FolderSearch, ShieldAlert } from 'lucide-react';
+import { getApiBaseUrl, setApiBaseUrl, getStoredApiUrl } from './config';
+import { Folder, Upload, BarChart2, Shield, Settings, X, Terminal, ChevronDown } from 'lucide-react';
 import './App.css';
 
 function App() {
   const [userName, setUserName] = useState('');
-  const [activeTab, setActiveTab] = useState('explorer'); // 'upload' | 'explorer'
+  const [activeTab, setActiveTab] = useState('explorer');
   const [logs, setLogs] = useState([]);
+  const [filesList, setFilesList] = useState([]);
+  
+  // Modals / Drawers
+  const [showSettings, setShowSettings] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
-  const [filesList, setFilesList] = useState([]); // Flat files list for StatsCard
+  const [apiUrlInput, setApiUrlInput] = useState(getStoredApiUrl());
+  
+  const logsEndRef = useRef(null);
 
   // Directory Breadcrumb States
   const [currentFolderId, setCurrentFolderId] = useState(null);
@@ -19,7 +26,7 @@ function App() {
   const [breadcrumbs, setBreadcrumbs] = useState([]);
 
   const addLog = (level, message) => {
-    const timestamp = new Date().toLocaleTimeString();
+    const timestamp = new Date().toLocaleTimeString([], { hour12: false });
     setLogs(prev => [...prev, { timestamp, level, message }]);
   };
 
@@ -27,195 +34,245 @@ function App() {
     addLog('INFO', 'DataVault security layer active.');
   }, []);
 
-  // Lock the vault session
-  const handleLockVault = () => {
-    setUserName('');
-    setCurrentFolderId(null);
-    setCurrentFolderName('Home');
-    setBreadcrumbs([]);
-    setFilesList([]);
-    addLog('INFO', 'Vault session locked.');
-  };
+  // Auto-scroll logs
+  useEffect(() => {
+    if (showLogs && logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [logs, showLogs]);
 
   if (!userName) {
     return <VaultGate onUnlock={(name) => {
       setUserName(name);
-      addLog('INFO', `Vault decrypted successfully for user: ${name}`);
+      addLog('SUCCESS', `Vault unlocked for user: ${name}`);
     }} />;
   }
 
+  // Pre-defined network options for the dropdown
+  const commonUrls = [
+    { label: "Local Device (Browser)", value: "" },
+    { label: "dev: LAPMACTPGGN19", value: "http://LAPMACTPGGN19.local:8081/" },
+    { label: "prod: LAPTOP-C5Q2VCU5", value: "http://LAPTOP-C5Q2VCU5.local:8081/" }
+  ];
+
   return (
-    <div className="min-h-screen bg-black text-slate-100 flex flex-col md:flex-row relative overflow-hidden font-sans">
-      {/* Dynamic background lighting */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
-        <div className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[120px] animate-float" />
-        <div className="absolute bottom-[-10%] right-[25%] w-[600px] h-[600px] bg-cyan-500/5 rounded-full blur-[130px] animate-float" style={{ animationDelay: '3s' }} />
-        <div 
-          className="absolute inset-0 opacity-[0.015]"
-          style={{
-            backgroundImage: `linear-gradient(0deg, transparent 24%, rgba(85, 136, 255, 0.05) 25%, rgba(85, 136, 255, 0.05) 26%, transparent 27%, transparent 74%, rgba(85, 136, 255, 0.05) 75%, rgba(85, 136, 255, 0.05) 76%, transparent 77%, transparent), linear-gradient(90deg, transparent 24%, rgba(85, 136, 255, 0.05) 25%, rgba(85, 136, 255, 0.05) 26%, transparent 27%, transparent 74%, rgba(85, 136, 255, 0.05) 75%, rgba(85, 136, 255, 0.05) 76%, transparent 77%, transparent)`,
-            backgroundSize: '50px 50px',
-          }}
-        />
-      </div>
-
-      {/* Sidebar - Desktop navigation & Info */}
-      <aside className="w-full md:w-[320px] bg-[#070708] border-r border-white/5 p-5 flex flex-col justify-between shrink-0 relative z-10 select-none">
-        <div className="space-y-6">
-          {/* Logo Brand Header */}
-          <div className="flex items-center gap-2.5 pb-3 border-b border-white/5">
-            <div className="p-2 bg-gradient-to-br from-indigo-500 to-cyan-500 rounded-xl text-white shadow-lg shadow-indigo-500/20">
-              <Lock className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="text-lg font-black tracking-tight text-white flex items-center">
-                Data<span className="text-indigo-400">Vault</span>
-              </h1>
-              <span className="text-[10px] text-slate-500 uppercase tracking-widest font-semibold block">Cloud Secure</span>
-            </div>
-          </div>
-
-          {/* User Session Credentials Card */}
-          <div className="p-4 bg-white/3 border border-white/5 rounded-2xl flex items-center justify-between">
-            <div className="min-w-0">
-              <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Active Identity</p>
-              <p className="text-xs font-bold text-white mt-0.5 truncate">{userName}</p>
-            </div>
-            <button 
-              onClick={handleLockVault}
-              className="p-2 rounded-xl bg-red-500/10 border border-red-500/25 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-all cursor-pointer"
-              title="Lock Session"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Sidebar Nav Links */}
-          <nav className="space-y-1.5">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block pl-2 mb-2">Workspace Tools</span>
-            <button
-              onClick={() => setActiveTab('explorer')}
-              className={`w-full flex items-center gap-3 px-4 h-11 rounded-xl text-xs font-bold transition-all ${
-                activeTab === 'explorer' 
-                  ? 'bg-gradient-to-r from-indigo-500/15 to-cyan-500/5 text-indigo-400 border border-indigo-500/20' 
-                  : 'text-slate-400 hover:text-white border border-transparent hover:bg-white/3'
-              }`}
-            >
-              <FolderSearch className="w-4 h-4" />
-              File Explorer
-            </button>
-            <button
-              onClick={() => setActiveTab('upload')}
-              className={`w-full flex items-center gap-3 px-4 h-11 rounded-xl text-xs font-bold transition-all ${
-                activeTab === 'upload' 
-                  ? 'bg-gradient-to-r from-indigo-500/15 to-cyan-500/5 text-indigo-400 border border-indigo-500/20' 
-                  : 'text-slate-400 hover:text-white border border-transparent hover:bg-white/3'
-              }`}
-            >
-              <Upload className="w-4 h-4" />
-              Upload Console
-            </button>
-          </nav>
-
-          {/* Dynamic Stats Metrics */}
-          <StatsCard files={filesList} />
+    <div className="flex flex-col min-h-[100dvh] pb-[90px]">
+      
+      {/* Top Header - Native iOS feel */}
+      <header className="flex items-center justify-between px-4 ios-glass sticky top-0 z-40 border-b-0 min-h-[44px] pt-[max(48px,env(safe-area-inset-top))] pb-2">
+        <div className="flex items-center gap-2">
+          <Shield className="w-5 h-5 text-indigo-500" strokeWidth={2.5} />
+          <span className="font-semibold tracking-tight text-white text-[17px]">DataVault</span>
         </div>
-
-        {/* Console Drawer Toggle Footer */}
-        <div className="pt-4 border-t border-white/5 mt-6 md:mt-0">
-          <button
-            onClick={() => setShowLogs(!showLogs)}
-            className="w-full flex items-center justify-between px-4 h-10 rounded-xl bg-white/2 hover:bg-white/4 border border-white/5 text-[11px] font-bold text-slate-400 hover:text-white transition-all cursor-pointer"
-          >
-            <span className="flex items-center gap-1.5">
-              <Terminal className="w-3.5 h-3.5 text-indigo-400" />
-              System Activity Logs
-            </span>
-            <span className="text-[10px] font-semibold bg-white/5 px-2 py-0.5 rounded border border-white/5">
-              {logs.length}
-            </span>
-          </button>
+        <div className="flex items-center gap-3">
+           <button 
+             onClick={() => setShowLogs(true)}
+             className="text-zinc-400 hover:text-white transition-colors p-1 relative"
+           >
+             <Terminal className="w-5 h-5" />
+             {/* Indicator dot if logs updated recently (simplified) */}
+             <span className="absolute top-1 right-1 w-2 h-2 bg-emerald-500 rounded-full border border-black"></span>
+           </button>
+           <button 
+             onClick={() => setShowSettings(true)}
+             className="text-zinc-400 hover:text-white transition-colors p-1"
+           >
+             <Settings className="w-5 h-5" />
+           </button>
+           <button 
+             onClick={() => setUserName('')}
+             className="text-sm font-semibold text-indigo-500 hover:text-indigo-400 transition-colors ml-1"
+           >
+             Lock
+           </button>
         </div>
-      </aside>
+      </header>
 
-      {/* Main Workspace Frame */}
-      <main className="flex-grow flex flex-col justify-between overflow-hidden relative z-10">
-        <div className="flex-grow p-6 lg:p-8 overflow-y-auto">
-          <div className="max-w-4xl mx-auto space-y-6">
-            {/* Folder Destination Badge */}
-            <div className="flex items-center gap-2 text-xs text-slate-400 bg-white/2 border border-white/5 rounded-xl px-4 py-2.5 w-fit">
-              <FolderOpen className="w-4 h-4 text-indigo-400" />
-              Current Node:
-              <strong className="text-white">/{currentFolderName}</strong>
-            </div>
+      {/* Main Content Area */}
+      <main className="flex-grow flex flex-col relative w-full px-4 pt-4 pb-6">
+        
+        {activeTab === 'explorer' && (
+          <FileBrowser 
+            addLog={addLog}
+            userName={userName}
+            currentFolderId={currentFolderId}
+            setCurrentFolderId={setCurrentFolderId}
+            currentFolderName={currentFolderName}
+            setCurrentFolderName={setCurrentFolderName}
+            breadcrumbs={breadcrumbs}
+            setBreadcrumbs={setBreadcrumbs}
+            onFilesUpdate={setFilesList}
+          />
+        )}
 
-            {/* Render selected workspace tool view */}
-            <div className="glass-premium border border-white/5 rounded-3xl p-6 shadow-2xl relative">
-              {activeTab === 'upload' ? (
-                <UploadForm 
-                  addLog={addLog} 
-                  userName={userName}
-                  currentFolderId={currentFolderId}
-                  setCurrentFolderId={setCurrentFolderId}
-                  currentFolderName={currentFolderName}
-                  setCurrentFolderName={setCurrentFolderName}
-                />
-              ) : (
-                <FileBrowser 
-                  addLog={addLog}
-                  userName={userName}
-                  currentFolderId={currentFolderId}
-                  setCurrentFolderId={setCurrentFolderId}
-                  currentFolderName={currentFolderName}
-                  setCurrentFolderName={setCurrentFolderName}
-                  breadcrumbs={breadcrumbs}
-                  setBreadcrumbs={setBreadcrumbs}
-                  onFilesUpdate={setFilesList}
-                />
-              )}
-            </div>
-          </div>
-        </div>
+        {activeTab === 'upload' && (
+          <UploadForm 
+            addLog={addLog} 
+            userName={userName}
+            currentFolderId={currentFolderId}
+            setCurrentFolderId={setCurrentFolderId}
+            currentFolderName={currentFolderName}
+            setCurrentFolderName={setCurrentFolderName}
+          />
+        )}
 
-        {/* Collapsible Console Drawer */}
-        {showLogs && (
-          <div className="border-t border-white/10 bg-[#070708] max-h-56 flex flex-col z-50 shrink-0 relative animate-fadeInUp">
-            <div className="flex items-center justify-between px-6 py-2.5 border-b border-white/5">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_#10b981]" />
-                Remote Terminal Logs
-              </span>
-              <button 
-                onClick={() => setLogs([])}
-                className="text-[9px] font-bold text-slate-500 hover:text-red-400 uppercase cursor-pointer"
-              >
-                Clear Terminal
-              </button>
-            </div>
-            <div className="overflow-y-auto p-4 font-mono text-[10px] space-y-1.5 flex-grow select-text selection:bg-indigo-500/30">
-              {logs.length === 0 ? (
-                <p className="text-slate-600 italic text-center py-6">Terminal idle. No events logged.</p>
-              ) : (
-                logs.map((log, idx) => {
-                  const colors = {
-                    info: 'text-sky-400',
-                    success: 'text-emerald-400',
-                    warning: 'text-amber-400',
-                    error: 'text-red-400'
-                  };
-                  return (
-                    <div key={idx} className="flex items-start gap-2 leading-relaxed">
-                      <span className="text-slate-600 flex-shrink-0">[{log.timestamp}]</span>
-                      <span className={`${colors[log.level.toLowerCase()] || 'text-white'} font-bold flex-shrink-0 uppercase`}>{log.level}:</span>
-                      <span className="text-slate-300">{log.message}</span>
-                    </div>
-                  );
-                })
-              )}
-            </div>
+        {activeTab === 'analytics' && (
+          <div className="space-y-6 animate-fadeInNative">
+             <div className="flex items-end justify-between pb-2">
+                <div>
+                  <h2 className="text-[28px] font-bold text-white tracking-tight">Analytics</h2>
+                </div>
+             </div>
+             <StatsCard files={filesList} />
           </div>
         )}
+
       </main>
+
+      {/* Settings Modal (iOS native-like alert style) */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-[9999] backdrop-blur-md animate-fadeInNative">
+          <div className="w-full max-w-[320px] glass-panel rounded-[14px] overflow-hidden animate-scalePop">
+            <div className="p-5 text-center border-b border-white/10">
+              <h3 className="text-[17px] font-semibold text-white mb-1">Network Settings</h3>
+              <p className="text-[13px] text-zinc-400 leading-tight">
+                Select your backend API destination.
+              </p>
+            </div>
+            
+            <div className="p-4 space-y-4">
+              <div className="relative">
+                <select 
+                  value={apiUrlInput}
+                  onChange={(e) => setApiUrlInput(e.target.value)}
+                  className="w-full h-11 px-3 appearance-none rounded-lg bg-white/5 text-white text-[15px] font-medium border border-transparent focus:border-indigo-500 focus:outline-none transition-colors"
+                >
+                  {commonUrls.map((url, i) => (
+                    <option key={i} value={url.value}>{url.label}</option>
+                  ))}
+                  {/* If the current input isn't in commonUrls, show it as 'Custom' */}
+                  {!commonUrls.find(u => u.value === apiUrlInput) && (
+                    <option value={apiUrlInput}>Custom: {apiUrlInput}</option>
+                  )}
+                </select>
+                <ChevronDown className="absolute right-3 top-3 w-5 h-5 text-zinc-400 pointer-events-none" />
+              </div>
+              
+              <input 
+                type="text" 
+                value={apiUrlInput}
+                onChange={(e) => setApiUrlInput(e.target.value)}
+                placeholder="Or type custom URL..."
+                className="w-full h-11 px-3 rounded-lg bg-white/5 text-white text-[15px] border border-transparent focus:border-indigo-500 focus:outline-none transition-colors"
+              />
+            </div>
+            
+            <div className="flex border-t border-white/10 h-12">
+              <button 
+                onClick={() => setShowSettings(false)}
+                className="flex-1 text-[17px] font-normal text-indigo-500 border-r border-white/10 ios-active"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                  setApiBaseUrl(apiUrlInput);
+                  setShowSettings(false);
+                  window.location.reload();
+                }}
+                className="flex-1 text-[17px] font-semibold text-indigo-500 ios-active"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FE Logs Bottom Sheet */}
+      {showLogs && (
+        <>
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-black/50 z-[9990] animate-fadeInNative" 
+            onClick={() => setShowLogs(false)} 
+          />
+          {/* Drawer */}
+          <div className="fixed bottom-0 left-0 right-0 h-[60vh] glass-panel rounded-t-[32px] z-[9991] flex flex-col shadow-2xl animate-slideUpNative border-b-0 border-l-0 border-r-0">
+            <div className="flex justify-center p-3 cursor-pointer" onClick={() => setShowLogs(false)}>
+               <div className="w-12 h-1.5 bg-zinc-600 rounded-full" />
+            </div>
+            <div className="px-5 pb-3 border-b border-white/10 flex justify-between items-center">
+               <h3 className="text-[17px] font-bold text-white tracking-tight flex items-center gap-2">
+                 <Terminal className="w-5 h-5 text-indigo-400" /> System Logs
+               </h3>
+               <button onClick={() => setLogs([])} className="text-[13px] font-semibold text-indigo-500">
+                 Clear
+               </button>
+            </div>
+            
+            {/* Terminal Window */}
+            <div className="flex-1 overflow-y-auto p-4 bg-black/40 font-mono text-[11px] leading-relaxed space-y-1.5 safe-pb">
+               {logs.map((log, i) => {
+                 let colorClass = "text-zinc-300";
+                 if (log.level === 'SUCCESS') colorClass = "text-emerald-400";
+                 if (log.level === 'ERROR') colorClass = "text-red-400";
+                 if (log.level === 'WARNING') colorClass = "text-amber-400";
+                 
+                 return (
+                   <div key={i} className="flex gap-2">
+                     <span className="text-zinc-600 shrink-0">[{log.timestamp}]</span>
+                     <span className={`shrink-0 font-semibold ${colorClass}`}>[{log.level}]</span>
+                     <span className="text-zinc-300 break-words">{log.message}</span>
+                   </div>
+                 );
+               })}
+               <div ref={logsEndRef} />
+               {logs.length === 0 && <div className="text-zinc-600 italic">No logs generated yet.</div>}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Bottom Tab Bar */}
+      <nav className="fixed bottom-0 left-0 right-0 h-[76px] bottom-nav-glass z-50 safe-pb flex items-center justify-around px-4">
+        <button 
+          onClick={() => setActiveTab('explorer')}
+          className={`flex items-center justify-center gap-2 px-5 py-2 rounded-2xl transition-all duration-200 cursor-pointer ${
+            activeTab === 'explorer' 
+              ? 'bg-indigo-500/25 text-white border border-indigo-500/40 shadow-[0_0_15px_rgba(99,102,241,0.3)] font-bold' 
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5 font-medium'
+          }`}
+        >
+          <Folder className={`w-5 h-5 ${activeTab === 'explorer' ? 'text-indigo-400 fill-indigo-400/20' : 'text-zinc-400'}`} strokeWidth={activeTab === 'explorer' ? 2.5 : 2} />
+          <span className="text-xs tracking-wide">Files</span>
+        </button>
+
+        <button 
+          onClick={() => setActiveTab('upload')}
+          className={`flex items-center justify-center gap-2 px-5 py-2 rounded-2xl transition-all duration-200 cursor-pointer ${
+            activeTab === 'upload' 
+              ? 'bg-indigo-500/25 text-white border border-indigo-500/40 shadow-[0_0_15px_rgba(99,102,241,0.3)] font-bold' 
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5 font-medium'
+          }`}
+        >
+          <Upload className={`w-5 h-5 ${activeTab === 'upload' ? 'text-indigo-400 fill-indigo-400/20' : 'text-zinc-400'}`} strokeWidth={activeTab === 'upload' ? 2.5 : 2} />
+          <span className="text-xs tracking-wide">Upload</span>
+        </button>
+
+        <button 
+          onClick={() => setActiveTab('analytics')}
+          className={`flex items-center justify-center gap-2 px-5 py-2 rounded-2xl transition-all duration-200 cursor-pointer ${
+            activeTab === 'analytics' 
+              ? 'bg-indigo-500/25 text-white border border-indigo-500/40 shadow-[0_0_15px_rgba(99,102,241,0.3)] font-bold' 
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5 font-medium'
+          }`}
+        >
+          <BarChart2 className={`w-5 h-5 ${activeTab === 'analytics' ? 'text-indigo-400 fill-indigo-400/20' : 'text-zinc-400'}`} strokeWidth={activeTab === 'analytics' ? 2.5 : 2} />
+          <span className="text-xs tracking-wide">Stats</span>
+        </button>
+      </nav>
+
     </div>
   );
 }

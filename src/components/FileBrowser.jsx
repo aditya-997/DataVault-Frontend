@@ -1,128 +1,40 @@
-import React, { useState, useEffect, useRef } from 'react';
-import FileTypeIcon from './FileTypeIcon';
-import { 
-  FolderPlus, 
-  Folder, 
-  Trash2, 
-  Edit3, 
-  MoveRight, 
-  Grid, 
-  List, 
-  ChevronRight, 
-  Home, 
-  CornerDownRight, 
-  Clock, 
-  ShieldCheck,
-  Search,
-  ExternalLink
-} from 'lucide-react';
-
-const FILES_API = `${window.location.origin}/files`;
-const FOLDERS_API = `${window.location.origin}/folders`;
+import React, { useState, useEffect } from 'react';
+import { getApiBaseUrl } from '../config';
+import { Folder, FolderPlus, MoreHorizontal, Search, File, Image as ImageIcon, FileText, Code, X, Download, Trash2, Edit2, FolderInput } from 'lucide-react';
 
 export default function FileBrowser({
-  addLog,
   userName,
   currentFolderId,
   setCurrentFolderId,
-  currentFolderName,
-  setCurrentFolderName,
   breadcrumbs,
   setBreadcrumbs,
-  onFilesUpdate
+  onFilesUpdate,
+  addLog
 }) {
   const [subfolders, setSubfolders] = useState([]);
   const [files, setFiles] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
-  const [visibleFilesCount, setVisibleFilesCount] = useState(10);
-  const scrollContainerRef = useRef(null);
-
-  // Hybrid pagination tracking states
-  const [loadedPage, setLoadedPage] = useState(0);
-  const [hasMoreOnServer, setHasMoreOnServer] = useState(true);
-  const [isFetchingMore, setIsFetchingMore] = useState(false);
-
-  const handleScroll = (e) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop - clientHeight < 40) {
-      if (visibleFilesCount < files.length) {
-        setVisibleFilesCount(prev => {
-          const nextVal = prev + 10;
-          addLog('INFO', `Lazy loading next items (rendered: ${Math.min(nextVal, files.length)}/${files.length})`);
-          
-          // Trigger prefetch if remaining loaded items is 5 or less
-          if (files.length - nextVal <= 5 && hasMoreOnServer && !isFetchingMore) {
-            const nextPage = loadedPage + 1;
-            addLog('INFO', `Prefetching next block of 50 files from backend (page: ${nextPage})`);
-            fetchDirectory(nextPage, true);
-          }
-          return nextVal;
-        });
-      } else {
-        // Fallback: fetched all current, but backend has more
-        if (hasMoreOnServer && !isFetchingMore) {
-          const nextPage = loadedPage + 1;
-          addLog('INFO', `Fetching next block of 50 files from backend (page: ${nextPage})`);
-          fetchDirectory(nextPage, true);
-        }
-      }
-    }
-  };
+  const [filterActive, setFilterActive] = useState('Files'); // 'Folders' | 'Files' | 'Images'
   
-  // Move item modal state
+  // New Folder Modal State
+  const [showNewFolderModal, setShowNewFolderModal] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+
+  // Move Modal State
   const [showMoveModal, setShowMoveModal] = useState(false);
-  const [moveTargetItem, setMoveTargetItem] = useState(null); // { id, name, type: 'file' | 'folder' }
-  const [allFolders, setAllFolders] = useState([]);
-  const [selectedDestId, setSelectedDestId] = useState('root');
+  const [moveTarget, setMoveTarget] = useState(null); // { id, name, type }
+  const [allUserFolders, setAllUserFolders] = useState([]);
+  const [selectedMoveFolderId, setSelectedMoveFolderId] = useState('root');
+  const [isMoving, setIsMoving] = useState(false);
+  
+  // Immersive Viewer State
+  const [fullscreenImage, setFullscreenImage] = useState(null);
 
-  // Lightbox / Fullscreen preview file state
-  const [previewFile, setPreviewFile] = useState(null);
-
-  const handleFileClick = (file) => {
-    if (file.fileType === 'image') {
-      setPreviewFile(file);
-      addLog('INFO', `Opening preview for: ${file.originalName}`);
-    } else if (file.fileType === 'pdf') {
-      addLog('INFO', `Opening PDF view for: ${file.originalName}`);
-      window.open(`${window.location.origin}/files/${file.id}/view?userName=${encodeURIComponent(userName)}`, '_blank');
-    } else {
-      addLog('INFO', `Triggering download for: ${file.originalName}`);
-      window.open(`${window.location.origin}/files/${file.id}/download?userName=${encodeURIComponent(userName)}`, '_blank');
-    }
-  };
-
-  const formatBytes = (bytes) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  };
-
-  const formatDate = (dateStr) => {
-    if (!dateStr) return 'Recent';
-    try {
-      return new Date(dateStr).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      });
-    } catch {
-      return dateStr;
-    }
-  };
-
-  // Fetch directory content
-  const fetchDirectory = async (page = 0, append = false) => {
+  const fetchDirectory = async () => {
     if (!userName) return;
-    if (page === 0) {
-      setIsLoading(true);
-    } else {
-      setIsFetchingMore(true);
-    }
-    
-    let url = `${FILES_API}/browse?userName=${encodeURIComponent(userName.trim())}&page=${page}&size=50`;
+    setIsLoading(true);
+    let url = `${getApiBaseUrl()}/files/browse?userName=${encodeURIComponent(userName.trim())}&page=0&size=100`;
     if (currentFolderId) {
       url += `&folderId=${currentFolderId}`;
     }
@@ -131,67 +43,19 @@ export default function FileBrowser({
       const res = await fetch(url);
       const data = await res.json();
       if (res.ok && data.status) {
-        const sub = data.data.subfolders || [];
-        const fls = data.data.files || [];
-        
-        setSubfolders(sub);
-        if (append) {
-          setFiles(prev => [...prev, ...fls]);
-        } else {
-          setFiles(fls);
-        }
-        
-        setHasMoreOnServer(fls.length === 50);
-        setLoadedPage(page);
-        setCurrentFolderName(data.data.currentFolderName || 'Home');
+        setSubfolders(data.data.subfolders || []);
+        setFiles(data.data.files || []);
         setBreadcrumbs(data.data.breadcrumbs || []);
-        
-        // Notify parent application of files list so StatsCard can update
-        if (onFilesUpdate) {
-          // Fallback to fetch all files flatly for StatsCard
-          fetchAllFilesFlat();
-        }
-      } else {
-        addLog('ERROR', `Failed to load directory: ${data.message}`);
+        if (onFilesUpdate) onFilesUpdate(data.data.files || []);
       }
-    } catch (err) {
-      addLog('ERROR', `Network error loading directory: ${err.message}`);
-    } finally {
-      setIsLoading(false);
-      setIsFetchingMore(false);
-    }
+    } catch (err) {}
+    setIsLoading(false);
   };
 
-  // Fetch flat file list for StatsCard aggregation
-  const fetchAllFilesFlat = async () => {
-    try {
-      const res = await fetch(`${FILES_API}?userName=${encodeURIComponent(userName.trim())}`);
-      const data = await res.json();
-      if (res.ok && data.status && onFilesUpdate) {
-        onFilesUpdate(data.data || []);
-      }
-    } catch (err) {
-      console.error('Failed flat files fetch:', err);
-    }
-  };
-
-  useEffect(() => {
-    setVisibleFilesCount(10);
-    setLoadedPage(0);
-    setHasMoreOnServer(true);
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = 0;
-    }
-    fetchDirectory(0, false);
-  }, [currentFolderId, userName]);
-
-  // Handle folder creation
   const handleCreateFolder = async () => {
-    const folderName = prompt('Enter name for the new folder:');
-    if (!folderName || !folderName.trim()) return;
-
-    addLog('INFO', `Creating folder "${folderName}"`);
-    let url = `${FOLDERS_API}?userName=${encodeURIComponent(userName)}&name=${encodeURIComponent(folderName.trim())}`;
+    if (!newFolderName || !newFolderName.trim()) return;
+    setIsCreatingFolder(true);
+    let url = `${getApiBaseUrl()}/folders?userName=${encodeURIComponent(userName.trim())}&name=${encodeURIComponent(newFolderName.trim())}`;
     if (currentFolderId) {
       url += `&parentId=${currentFolderId}`;
     }
@@ -200,561 +64,504 @@ export default function FileBrowser({
       const res = await fetch(url, { method: 'POST' });
       const data = await res.json();
       if (res.ok && data.status) {
-        addLog('SUCCESS', `Created folder: ${folderName}`);
+        if (addLog) addLog('SUCCESS', `Created folder "${newFolderName.trim()}"`);
+        setShowNewFolderModal(false);
+        setNewFolderName('');
         fetchDirectory();
       } else {
         alert(data.message || 'Failed to create folder');
-        addLog('ERROR', `Create folder failed: ${data.message}`);
       }
     } catch (err) {
-      addLog('ERROR', `Create folder network error: ${err.message}`);
+      alert('Network error while creating folder');
+    }
+    setIsCreatingFolder(false);
+  };
+
+  const handleDeleteFile = async (fileId, fileName, e) => {
+    if (e) e.stopPropagation();
+    if (!window.confirm(`Are you sure you want to delete "${fileName}"?`)) return;
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/files/${fileId}?userName=${encodeURIComponent(userName.trim())}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok && data.status) {
+        if (addLog) addLog('SUCCESS', `Deleted file "${fileName}"`);
+        if (fullscreenImage && fullscreenImage.id === fileId) {
+          setFullscreenImage(null);
+        }
+        fetchDirectory();
+      } else {
+        alert(data.message || 'Failed to delete file');
+      }
+    } catch (err) {
+      alert('Network error while deleting file');
     }
   };
 
-  // Rename folder
-  const handleRenameFolder = async (folderId, oldName, e) => {
-    e.stopPropagation();
-    const newName = prompt(`Rename folder "${oldName}" to:`, oldName);
-    if (!newName || !newName.trim() || newName === oldName) return;
-
-    addLog('INFO', `Renaming folder "${oldName}" to "${newName}"`);
+  const handleDeleteFolder = async (folderId, folderName, e) => {
+    if (e) e.stopPropagation();
+    if (!window.confirm(`WARNING: Deleting folder "${folderName}" will delete ALL its subfolders and files! Are you sure?`)) return;
     try {
-      const res = await fetch(`${FOLDERS_API}/${folderId}/rename?userName=${encodeURIComponent(userName)}&name=${encodeURIComponent(newName.trim())}`, {
+      const res = await fetch(`${getApiBaseUrl()}/folders/${folderId}?userName=${encodeURIComponent(userName.trim())}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok && data.status) {
+        if (addLog) addLog('SUCCESS', `Deleted folder "${folderName}"`);
+        fetchDirectory();
+      } else {
+        alert(data.message || 'Failed to delete folder');
+      }
+    } catch (err) {
+      alert('Network error while deleting folder');
+    }
+  };
+
+  const handleRenameFolder = async (folderId, currentName, e) => {
+    if (e) e.stopPropagation();
+    const newName = window.prompt(`Rename folder "${currentName}" to:`, currentName);
+    if (!newName || !newName.trim() || newName.trim() === currentName) return;
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/folders/${folderId}/rename?userName=${encodeURIComponent(userName.trim())}&name=${encodeURIComponent(newName.trim())}`, {
         method: 'PATCH'
       });
       const data = await res.json();
       if (res.ok && data.status) {
-        addLog('SUCCESS', `Renamed folder to: ${newName}`);
+        if (addLog) addLog('SUCCESS', `Renamed folder to "${newName.trim()}"`);
         fetchDirectory();
       } else {
         alert(data.message || 'Failed to rename folder');
-        addLog('ERROR', `Rename folder failed: ${data.message}`);
       }
     } catch (err) {
-      addLog('ERROR', `Rename folder network error: ${err.message}`);
+      alert('Network error while renaming folder');
     }
   };
 
-  // Delete folder
-  const handleDeleteFolder = async (folderId, folderName, e) => {
-    e.stopPropagation();
-    if (!confirm(`WARNING: Deleting folder "${folderName}" will delete ALL its subfolders and files recursively!\nAre you sure you want to proceed?`)) return;
-
-    addLog('INFO', `Deleting folder "${folderName}"...`);
+  const handleOpenMoveModal = async (item, type, e) => {
+    if (e) e.stopPropagation();
+    setMoveTarget({ id: item.id, name: item.originalName || item.name, type });
+    setSelectedMoveFolderId('root');
     try {
-      const res = await fetch(`${FOLDERS_API}/${folderId}?userName=${encodeURIComponent(userName)}`, {
-        method: 'DELETE'
-      });
+      const res = await fetch(`${getApiBaseUrl()}/folders/all?userName=${encodeURIComponent(userName.trim())}`);
       const data = await res.json();
       if (res.ok && data.status) {
-        addLog('SUCCESS', `Deleted folder: ${folderName}`);
-        fetchDirectory();
-      } else {
-        addLog('ERROR', `Failed to delete folder: ${data.message}`);
-      }
-    } catch (err) {
-      addLog('ERROR', `Delete folder network error: ${err.message}`);
-    }
-  };
-
-  // Delete file
-  const handleDeleteFile = async (fileId, fileName, e) => {
-    e.stopPropagation();
-    if (!confirm(`Are you sure you want to delete "${fileName}"?`)) return;
-
-    addLog('INFO', `Deleting file "${fileName}"`);
-    try {
-      const res = await fetch(`${FILES_API}/${fileId}?userName=${encodeURIComponent(userName)}`, {
-        method: 'DELETE'
-      });
-      const data = await res.json();
-      if (res.ok && data.status) {
-        addLog('SUCCESS', `Deleted file: ${fileName}`);
-        fetchDirectory();
-      } else {
-        addLog('ERROR', `Failed to delete file: ${data.message}`);
-      }
-    } catch (err) {
-      addLog('ERROR', `Delete file network error: ${err.message}`);
-    }
-  };
-
-  // Open move modal
-  const openMoveModal = async (itemId, itemName, type, e) => {
-    e.stopPropagation();
-    setMoveTargetItem({ id: itemId, name: itemName, type });
-    setSelectedDestId('root');
-    
-    try {
-      const res = await fetch(`${FOLDERS_API}/all?userName=${encodeURIComponent(userName)}`);
-      const data = await res.json();
-      if (res.ok && data.status) {
-        let available = data.data || [];
+        let folderList = data.data || [];
         if (type === 'folder') {
-          available = available.filter(f => f.id !== itemId);
+          folderList = folderList.filter(f => f.id !== item.id);
         }
-        setAllFolders(available);
+        setAllUserFolders(folderList);
         setShowMoveModal(true);
-      } else {
-        addLog('ERROR', `Could not fetch target folders: ${data.message}`);
       }
     } catch (err) {
-      addLog('ERROR', `Network error loading folders: ${err.message}`);
+      alert('Failed to load folders list for move destination');
     }
   };
 
-  // Submit move
-  const handleMoveSubmit = async () => {
-    if (!moveTargetItem) return;
-    const destFolderId = selectedDestId === 'root' ? null : Number(selectedDestId);
+  const handleExecuteMove = async () => {
+    if (!moveTarget) return;
+    setIsMoving(true);
+    const isFolder = moveTarget.type === 'folder';
+    const targetFolderId = selectedMoveFolderId === 'root' ? null : selectedMoveFolderId;
+    
+    let url = isFolder 
+      ? `${getApiBaseUrl()}/folders/${moveTarget.id}/move?userName=${encodeURIComponent(userName.trim())}`
+      : `${getApiBaseUrl()}/files/${moveTarget.id}/move?userName=${encodeURIComponent(userName.trim())}`;
 
-    const isFolder = moveTargetItem.type === 'folder';
-    const endpoint = isFolder 
-      ? `${FOLDERS_API}/${moveTargetItem.id}/move`
-      : `${FILES_API}/${moveTargetItem.id}/move`;
-
-    let url = `${endpoint}?userName=${encodeURIComponent(userName)}`;
-    if (destFolderId) {
-      url += `&parentId=${destFolderId}`;
+    if (targetFolderId) {
+      url += isFolder ? `&parentId=${targetFolderId}` : `&folderId=${targetFolderId}`;
     }
-    if (!isFolder && destFolderId) {
-      url += `&folderId=${destFolderId}`;
-    }
-
-    addLog('INFO', `Moving ${moveTargetItem.type} "${moveTargetItem.name}"...`);
 
     try {
       const res = await fetch(url, { method: 'PATCH' });
       const data = await res.json();
       if (res.ok && data.status) {
-        addLog('SUCCESS', `Successfully moved "${moveTargetItem.name}"`);
+        if (addLog) addLog('SUCCESS', `Moved ${moveTarget.type} "${moveTarget.name}"`);
         setShowMoveModal(false);
-        setMoveTargetItem(null);
+        setMoveTarget(null);
         fetchDirectory();
       } else {
-        alert(data.message || `Failed to move ${moveTargetItem.type}`);
-        addLog('ERROR', `Move failed: ${data.message}`);
+        alert(data.message || 'Failed to move item');
       }
     } catch (err) {
-      addLog('ERROR', `Move network error: ${err.message}`);
+      alert('Network error while moving item');
+    }
+    setIsMoving(false);
+  };
+
+  useEffect(() => {
+    fetchDirectory();
+  }, [currentFolderId, userName]);
+
+  const handleFileClick = (file) => {
+    if (isImage(file)) {
+      setFullscreenImage(file);
+    } else if (file.fileType === 'pdf') {
+      window.open(`${getApiBaseUrl()}/files/${file.id}/view?userName=${encodeURIComponent(userName)}`, '_blank');
+    } else {
+      window.open(`${getApiBaseUrl()}/files/${file.id}/download?userName=${encodeURIComponent(userName)}`, '_blank');
     }
   };
 
+  const getIconForFile = (filename) => {
+    const ext = filename?.split('.').pop()?.toLowerCase() || '';
+    if (['pdf', 'doc', 'docx', 'txt'].includes(ext)) return <FileText className="w-6 h-6 text-zinc-400" strokeWidth={1.5} />;
+    if (['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'py'].includes(ext)) return <Code className="w-6 h-6 text-zinc-400" strokeWidth={1.5} />;
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) return <ImageIcon className="w-6 h-6 text-zinc-400" strokeWidth={1.5} />;
+    return <File className="w-6 h-6 text-zinc-400" strokeWidth={1.5} />;
+  };
+
+  const isImage = (f) => ['image', 'jpg', 'jpeg', 'png', 'gif', 'webp'].includes(f.fileType || f.originalName?.split('.').pop()?.toLowerCase());
+
+  // Group files by date (mock logic for demo UI purposes based on file created date)
+  const groupedFiles = files.reduce((acc, file) => {
+    // simplified group mapping
+    const groupName = "Today, July 20"; 
+    if(!acc[groupName]) acc[groupName] = [];
+    acc[groupName].push(file);
+    return acc;
+  }, {});
+
   return (
-    <div className="space-y-6">
-      {/* Explorer Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/5 pb-4">
-        {/* Terminal path breadcrumbs */}
-        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/3 border border-white/5 text-xs font-mono text-slate-300 max-w-full overflow-x-auto whitespace-nowrap">
-          <button 
-            className={`hover:text-indigo-400 flex items-center gap-1 transition-colors ${currentFolderId === null ? 'text-indigo-400 font-bold' : 'text-slate-400'}`}
-            onClick={() => setCurrentFolderId(null)}
-          >
-            <Home className="w-3.5 h-3.5" />
-            root
-          </button>
-          
-          {breadcrumbs.map((bc, index) => (
-            <React.Fragment key={bc.id}>
-              <ChevronRight className="w-3 h-3 text-slate-500 flex-shrink-0" />
-              <button 
-                className={`hover:text-indigo-400 transition-colors ${index === breadcrumbs.length - 1 ? 'text-indigo-400 font-bold' : 'text-slate-400'}`}
-                onClick={() => setCurrentFolderId(bc.id)}
-              >
-                {bc.name}
-              </button>
-            </React.Fragment>
-          ))}
+    <div className="space-y-6 animate-fadeIn">
+      
+      {/* Header - Clean Breadcrumbs */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-sm overflow-x-auto py-1 max-w-[65%]">
+           <button 
+             onClick={() => setCurrentFolderId(null)}
+             className={`transition-colors ${currentFolderId === null ? 'text-white font-semibold' : 'text-zinc-500 hover:text-zinc-300'}`}
+           >
+             Home
+           </button>
+           {breadcrumbs.map((bc, idx) => (
+             <React.Fragment key={bc.id}>
+               <span className="text-zinc-600">/</span>
+               <button 
+                 onClick={() => setCurrentFolderId(bc.id)}
+                 className={`transition-colors ${idx === breadcrumbs.length - 1 ? 'text-white font-semibold' : 'text-zinc-500 hover:text-zinc-300'}`}
+               >
+                 {bc.name}
+               </button>
+             </React.Fragment>
+           ))}
         </div>
-
-        {/* Controls Layout + New Folder */}
-        <div className="flex items-center gap-2.5">
-          {/* Toggle View mode */}
-          <div className="flex items-center rounded-xl bg-white/3 border border-white/5 p-1">
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`p-1.5 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:text-white'}`}
-              title="Grid View"
-            >
-              <Grid className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`p-1.5 rounded-lg transition-all ${viewMode === 'list' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:text-white'}`}
-              title="List View"
-            >
-              <List className="w-4 h-4" />
-            </button>
-          </div>
-
-          <button
-            onClick={handleCreateFolder}
-            className="h-9 px-4 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-white text-xs font-bold hover:bg-indigo-500/20 transition-all flex items-center gap-1.5 cursor-pointer"
-          >
-            <FolderPlus className="w-3.5 h-3.5" />
-            New Folder
-          </button>
+        <div className="flex items-center gap-2 shrink-0">
+           <button 
+             onClick={() => setShowNewFolderModal(true)}
+             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 text-xs font-semibold hover:bg-indigo-500/30 active:scale-95 transition-all cursor-pointer"
+           >
+             <FolderPlus className="w-4 h-4 text-indigo-400" />
+             <span>New Folder</span>
+           </button>
         </div>
       </div>
 
-      {/* Explorer Results */}
-      <div 
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-        className="relative max-h-[480px] overflow-y-auto pr-1.5 border border-white/5 rounded-2xl bg-white/[0.01] p-3.5"
-      >
-        {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/10 backdrop-blur-[1px] z-10 rounded-2xl">
-            <div className="flex flex-col items-center gap-2 text-xs font-semibold text-slate-400">
-              <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
-              Scanning filesystem...
-            </div>
-          </div>
-        )}
+      {/* Filter Chips */}
+      <div className="flex gap-4 border-b border-white/5 pb-2 text-sm font-medium">
+         <button onClick={() => setFilterActive('Folders')} className={`${filterActive === 'Folders' ? 'text-indigo-400 border-b border-indigo-400' : 'text-zinc-500 hover:text-zinc-300'} pb-2 transition-all`}>
+            Folders ({subfolders.length})
+         </button>
+         <button onClick={() => setFilterActive('Files')} className={`${filterActive === 'Files' ? 'text-indigo-400 border-b border-indigo-400' : 'text-zinc-500 hover:text-zinc-300'} pb-2 transition-all`}>
+            Files ({files.length})
+         </button>
+         <button onClick={() => setFilterActive('Images')} className={`${filterActive === 'Images' ? 'text-indigo-400 border-b border-indigo-400' : 'text-zinc-500 hover:text-zinc-300'} pb-2 transition-all`}>
+            Images
+         </button>
+      </div>
 
-        {!isLoading && subfolders.length === 0 && files.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 text-center glass rounded-2xl border border-white/5">
-            <Folder className="w-10 h-10 text-slate-500 stroke-[1.5] mb-3 animate-float" />
-            <p className="text-sm font-semibold text-slate-300">This directory is empty</p>
-            <p className="text-xs text-slate-500 mt-1">Upload files or create subdirectories to populate this node</p>
-          </div>
-        )}
+      {isLoading && (
+         <div className="py-20 text-center text-zinc-500 text-sm animate-pulse">Loading vault data...</div>
+      )}
 
-        {!isLoading && (subfolders.length > 0 || files.length > 0) && (
-          <div className="space-y-6">
-            {/* Render Folders First */}
-            {subfolders.length > 0 && (
-              <div className="space-y-2">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block pl-1">
-                  Folders ({subfolders.length})
-                </span>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5">
-                  {subfolders.map(folder => (
-                    <div
-                      key={folder.id}
-                      onClick={() => {
-                        setCurrentFolderId(folder.id);
-                        setCurrentFolderName(folder.name);
-                      }}
-                      className="group p-4 bg-white/2 border border-white/5 rounded-2xl hover:border-indigo-500/30 transition-all duration-300 hover-lift-3d cursor-pointer flex flex-col justify-between h-[104px]"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="p-2.5 bg-gradient-to-br from-indigo-500/10 to-cyan-500/5 rounded-xl text-indigo-400 group-hover:scale-105 transition-transform duration-300 border border-white/5">
-                          <Folder className="w-5 h-5" />
-                        </div>
-                        {/* Quick Hover Actions */}
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 backdrop-blur-sm border border-white/5 rounded-lg p-0.5" onClick={e => e.stopPropagation()}>
-                          <button
-                            onClick={(e) => openMoveModal(folder.id, folder.name, 'folder', e)}
-                            title="Move folder"
-                            className="p-1 text-slate-400 hover:text-white rounded"
-                          >
-                            <MoveRight className="w-3 h-3" />
-                          </button>
-                          <button
-                            onClick={(e) => handleRenameFolder(folder.id, folder.name, e)}
-                            title="Rename folder"
-                            className="p-1 text-slate-400 hover:text-white rounded"
-                          >
-                            <Edit3 className="w-3 h-3" />
-                          </button>
-                          <button
-                            onClick={(e) => handleDeleteFolder(folder.id, folder.name, e)}
-                            title="Delete folder"
-                            className="p-1 text-red-400 hover:text-red-300 rounded"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </div>
-                      
-                      <div className="min-w-0 pt-2">
-                        <h5 className="text-xs font-bold text-white truncate" title={folder.name}>
-                          {folder.name}
-                        </h5>
-                        <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider mt-0.5">Directory Node</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+      {/* FOLDERS SECTION */}
+      {!isLoading && (filterActive === 'Folders' || filterActive === 'Files') && subfolders.length > 0 && (
+        <div className="space-y-3">
+          <span className="text-[11px] font-semibold tracking-wider text-zinc-400 uppercase">Folders</span>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {subfolders.map(folder => (
+              <div 
+                key={folder.id} 
+                onClick={() => setCurrentFolderId(folder.id)}
+                className="glass-panel rounded-2xl p-3.5 flex items-center justify-between cursor-pointer hover:bg-white/10 transition-all group relative border border-white/5 hover:border-indigo-500/30"
+              >
+                 <div className="flex items-center gap-3 min-w-0">
+                   <Folder className="w-5 h-5 text-indigo-400 shrink-0" strokeWidth={1.5} />
+                   <div className="min-w-0">
+                     <div className="text-sm font-semibold text-white truncate max-w-[100px]">{folder.name}</div>
+                     <div className="text-[10px] text-zinc-400">Folder</div>
+                   </div>
+                 </div>
+
+                 {/* Folder Actions (Move, Rename, Delete) */}
+                 <div className="flex items-center gap-1 opacity-90 md:opacity-0 group-hover:opacity-100 transition-opacity bg-black/80 backdrop-blur-md border border-white/10 rounded-xl p-1 shrink-0" onClick={e => e.stopPropagation()}>
+                   <button 
+                     type="button"
+                     onClick={(e) => handleOpenMoveModal(folder, 'folder', e)}
+                     title="Move Folder" 
+                     className="p-1 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+                   >
+                     <FolderInput className="w-3.5 h-3.5" />
+                   </button>
+                   <button 
+                     type="button"
+                     onClick={(e) => handleRenameFolder(folder.id, folder.name, e)}
+                     title="Rename Folder" 
+                     className="p-1 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+                   >
+                     <Edit2 className="w-3.5 h-3.5" />
+                   </button>
+                   <button 
+                     type="button"
+                     onClick={(e) => handleDeleteFolder(folder.id, folder.name, e)}
+                     title="Delete Folder" 
+                     className="p-1 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-lg transition-colors cursor-pointer"
+                   >
+                     <Trash2 className="w-3.5 h-3.5" />
+                   </button>
+                 </div>
               </div>
-            )}
+            ))}
+          </div>
+        </div>
+      )}
 
-            {/* Render Files */}
-            {files.length > 0 && (
-              <div className="space-y-2">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block pl-1">
-                  Files ({files.length})
-                </span>
-                
-                {viewMode === 'grid' ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5">
-                    {files.slice(0, visibleFilesCount).map(file => {
-                      const showThumbnail = file.fileType === 'image' || file.fileType === 'pdf';
-                      
-                      if (showThumbnail) {
-                        return (
-                          <div
-                            key={file.id}
-                            onClick={() => handleFileClick(file)}
-                            className="group relative rounded-2xl overflow-hidden border border-white/5 hover:border-cyan-500/30 transition-all duration-300 hover-lift-3d h-[140px] cursor-pointer bg-black"
-                          >
-                            {/* Image fills the entire card */}
-                            <img 
-                              src={`${window.location.origin}/files/${file.id}/thumbnail?userName=${encodeURIComponent(userName)}`}
-                              alt={file.originalName}
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                            />
-                            
-                            {/* Overlay for actions and name, visible on hover */}
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 p-3 flex flex-col justify-between select-none">
-                              {/* Quick Hover Actions */}
-                              <div className="flex items-center gap-1 self-end bg-black/60 backdrop-blur-sm border border-white/10 rounded-lg p-0.5" onClick={e => e.stopPropagation()}>
-                                <button
-                                  onClick={(e) => openMoveModal(file.id, file.originalName, 'file', e)}
-                                  title="Move file"
-                                  className="p-1 text-slate-300 hover:text-white rounded"
-                                >
-                                  <MoveRight className="w-3 h-3" />
-                                </button>
-                                <button
-                                  onClick={(e) => handleDeleteFile(file.id, file.originalName, e)}
-                                  title="Delete file"
-                                  className="p-1 text-red-400 hover:text-red-300 rounded"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </div>
-
-                              {/* Title / Meta (bottom) */}
-                              <div className="min-w-0">
-                                <h5 className="text-[11px] font-bold text-white truncate" title={file.originalName}>
-                                  {file.originalName}
-                                </h5>
-                                <div className="flex items-center justify-between text-[8px] text-slate-300 font-semibold mt-0.5">
-                                  <span>{formatBytes(file.sizeBytes)}</span>
-                                  <span className="flex items-center gap-0.5">
-                                    <Clock className="w-2 h-2" />
-                                    {formatDate(file.fileCreatedDate)}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      }
-
-                      // Non-image files card layout
-                      return (
-                        <div
-                          key={file.id}
-                          onClick={() => handleFileClick(file)}
-                          className="group p-4 bg-white/2 border border-white/5 rounded-2xl hover:border-cyan-500/30 transition-all duration-300 hover-lift-3d flex flex-col justify-between h-[140px] cursor-pointer"
-                        >
-                          <div className="flex items-start justify-between">
-                            <div className="p-2.5 bg-white/3 rounded-xl text-slate-400 border border-white/5 group-hover:scale-105 transition-transform duration-300 w-10 h-10 overflow-hidden flex items-center justify-center p-0">
-                              <FileTypeIcon fileName={file.originalName} className="w-5 h-5" />
-                            </div>
-                            {/* Quick Hover Actions */}
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 backdrop-blur-sm border border-white/5 rounded-lg p-0.5" onClick={e => e.stopPropagation()}>
-                              <button
-                                onClick={(e) => openMoveModal(file.id, file.originalName, 'file', e)}
-                                title="Move file"
-                                className="p-1 text-slate-400 hover:text-white rounded"
-                              >
-                                <MoveRight className="w-3 h-3" />
-                              </button>
-                              <button
-                                onClick={(e) => handleDeleteFile(file.id, file.originalName, e)}
-                                title="Delete file"
-                                className="p-1 text-red-400 hover:text-red-300 rounded"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="min-w-0 pt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                            <h5 className="text-xs font-bold text-white truncate" title={file.originalName}>
-                              {file.originalName}
-                            </h5>
-                            <div className="flex items-center justify-between text-[9px] text-slate-500 font-semibold mt-0.5">
-                              <span>{formatBytes(file.sizeBytes)}</span>
-                              <span>•</span>
-                              <span className="flex items-center gap-0.5">
-                                <Clock className="w-2.5 h-2.5" />
-                                {formatDate(file.fileCreatedDate)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  /* List View Mode */
-                  <div className="border border-white/5 rounded-2xl overflow-hidden glass divide-y divide-white/5">
-                    {files.slice(0, visibleFilesCount).map(file => (
-                      <div
-                        key={file.id}
-                        onClick={() => handleFileClick(file)}
-                        className="group flex items-center justify-between gap-4 p-3.5 hover:bg-white/2 transition-smooth cursor-pointer"
-                      >
-                        <div className="flex items-center gap-3.5 min-w-0">
-                          <div className="p-2 bg-white/4 rounded-xl text-slate-400 border border-white/5 flex-shrink-0 w-8.5 h-8.5 overflow-hidden flex items-center justify-center p-0">
-                            {file.fileType === 'image' || file.fileType === 'pdf' ? (
+      {/* FILES SECTION (Google Photos style Grid with Move & Delete) */}
+      {!isLoading && (filterActive === 'Files' || filterActive === 'Images') && files.length > 0 && (
+        <div className="space-y-6 pt-2 pb-6">
+           {Object.entries(groupedFiles).map(([groupDate, groupItems]) => (
+             <div key={groupDate} className="space-y-2">
+               <span className="text-[13px] font-semibold text-white pl-1">{groupDate}</span>
+               
+               {/* Edge-to-Edge Grid Container */}
+               <div className="edge-to-edge">
+                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-[1px] md:gap-0.5">
+                   {groupItems.map(file => {
+                     const isImg = isImage(file);
+                     return (
+                       <div 
+                         key={file.id} 
+                         className="aspect-square glass-panel overflow-hidden relative cursor-pointer group rounded-lg border border-white/5 hover:border-indigo-500/30 transition-all"
+                       >
+                          <div onClick={() => handleFileClick(file)} className="w-full h-full">
+                            {isImg ? (
                               <img 
-                                src={`${window.location.origin}/files/${file.id}/thumbnail?userName=${encodeURIComponent(userName)}`}
+                                src={`${getApiBaseUrl()}/files/${file.id}/thumbnail?userName=${encodeURIComponent(userName)}`} 
                                 alt={file.originalName}
-                                className="w-full h-full object-cover"
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                loading="lazy"
                               />
                             ) : (
-                              <FileTypeIcon fileName={file.originalName} className="w-4.5 h-4.5" />
+                              <div className="w-full h-full flex flex-col items-center justify-center p-2 bg-white/5">
+                                 {getIconForFile(file.originalName)}
+                                 <span className="text-[9px] font-medium text-zinc-300 mt-2 truncate w-full text-center px-1">
+                                   {file.originalName}
+                                 </span>
+                              </div>
                             )}
                           </div>
-                          <div className="min-w-0">
-                            <p className="text-xs font-bold text-white truncate" title={file.originalName}>
-                              {file.originalName}
-                            </p>
-                            <p className="text-[10px] text-slate-400 mt-0.5">
-                              {formatBytes(file.sizeBytes)} • {file.fileType || file.originalName.split('.').pop() || 'File'}
-                            </p>
-                          </div>
-                        </div>
 
-                        <div className="flex items-center gap-4 flex-shrink-0">
-                          <span className="text-[10px] text-slate-500 font-medium flex items-center gap-0.5 hidden sm:flex">
-                            <Clock className="w-3 h-3" />
-                            Uploaded: {formatDate(file.fileCreatedDate)}
-                          </span>
-
-                          <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 backdrop-blur-sm border border-white/5 rounded-lg p-0.5">
-                            <button
-                              onClick={(e) => openMoveModal(file.id, file.originalName, 'file', e)}
-                              title="Move file"
-                              className="p-1 text-slate-400 hover:text-white rounded"
+                          {/* File Actions Overlay (Move & Delete) */}
+                          <div 
+                            className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-90 md:opacity-0 group-hover:opacity-100 transition-opacity bg-black/80 backdrop-blur-md border border-white/10 rounded-xl p-1 z-10"
+                            onClick={e => e.stopPropagation()}
+                          >
+                            <button 
+                              type="button"
+                              onClick={(e) => handleOpenMoveModal(file, 'file', e)}
+                              title="Move File"
+                              className="p-1.5 text-zinc-300 hover:text-white hover:bg-white/20 rounded-lg transition-colors cursor-pointer"
                             >
-                              <MoveRight className="w-3 h-3" />
+                              <FolderInput className="w-3.5 h-3.5" />
                             </button>
-                            <button
+                            <button 
+                              type="button"
                               onClick={(e) => handleDeleteFile(file.id, file.originalName, e)}
-                              title="Delete file"
-                              className="p-1 text-red-400 hover:text-red-300 rounded"
+                              title="Delete File"
+                              className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-lg transition-colors cursor-pointer"
                             >
-                              <Trash2 className="w-3 h-3" />
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                       </div>
+                     )
+                   })}
+                 </div>
+               </div>
+             </div>
+           ))}
+        </div>
+      )}
 
-                {/* Infinite Scroll Loader Indicator */}
-                {(visibleFilesCount < files.length || hasMoreOnServer) && (
-                  <div className="text-center text-[10px] text-slate-500 py-4 font-semibold tracking-wider animate-pulse flex items-center justify-center gap-1.5 border-t border-white/5 mt-3">
-                    <span className="inline-block h-3 w-3 animate-spin rounded-full border border-slate-500 border-t-transparent" />
-                    {isFetchingMore 
-                      ? "Fetching assets from security core..." 
-                      : (visibleFilesCount < files.length)
-                        ? `Scroll down to display more assets (${files.length - visibleFilesCount} local files remaining)`
-                        : "Scroll down to fetch next block from server..."
-                    }
-                  </div>
-                )}
-              </div>
-            )}
+      {/* IMMERSIVE FULL SCREEN VIEWER */}
+      {fullscreenImage && (
+        <div className="fixed inset-0 z-[9999] bg-black animate-fadeInNative flex flex-col justify-center">
+          {/* Header */}
+          <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-black/60 to-transparent flex justify-between items-center px-4 safe-pt z-10">
+            <button 
+              type="button"
+              onClick={() => setFullscreenImage(null)}
+              className="p-2 -ml-2 text-white hover:bg-white/10 rounded-full transition-colors cursor-pointer"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <div className="flex items-center gap-2">
+              <button 
+                type="button"
+                onClick={(e) => handleOpenMoveModal(fullscreenImage, 'file', e)}
+                title="Move File"
+                className="p-2 text-zinc-300 hover:text-white hover:bg-white/10 rounded-full transition-colors cursor-pointer"
+              >
+                <FolderInput className="w-5 h-5" />
+              </button>
+              <button 
+                type="button"
+                onClick={(e) => handleDeleteFile(fullscreenImage.id, fullscreenImage.originalName, e)}
+                title="Delete File"
+                className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-full transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
+              <a 
+                href={`${getApiBaseUrl()}/files/${fullscreenImage.id}/download?userName=${encodeURIComponent(userName)}`}
+                target="_blank"
+                rel="noreferrer"
+                title="Download Original"
+                className="p-2 text-white hover:bg-white/10 rounded-full transition-colors cursor-pointer"
+              >
+                <Download className="w-5 h-5" />
+              </a>
+            </div>
           </div>
-        )}
-      </div>
+          
+          {/* Main Image */}
+          <div className="flex-1 w-full flex items-center justify-center overflow-hidden">
+            <img 
+              src={`${getApiBaseUrl()}/files/${fullscreenImage.id}/view?userName=${encodeURIComponent(userName)}`}
+              alt={fullscreenImage.originalName}
+              className="max-w-full max-h-full object-contain animate-scalePop"
+            />
+          </div>
+          
+          {/* Footer Info */}
+          <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/80 to-transparent text-center safe-pb pointer-events-none">
+             <h3 className="text-white text-sm font-medium truncate">{fullscreenImage.originalName}</h3>
+             <p className="text-zinc-400 text-xs mt-1">
+                {(fullscreenImage.sizeBytes / 1024 / 1024).toFixed(1)} MB
+             </p>
+          </div>
+        </div>
+      )}
 
-      {/* Move Dialog Modal Overlay */}
-      {showMoveModal && moveTargetItem && (
-        <div className="fixed inset-0 bg-black/75 flex items-center justify-center p-4 z-[9999] backdrop-blur-md animate-fadeInUp">
-          <div className="w-full max-w-sm glass-premium border border-white/10 rounded-3xl p-6 shadow-2xl space-y-5 animate-rotateIn3D">
-            <div>
-              <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
-                <CornerDownRight className="w-4 h-4 text-indigo-400 animate-pulse" />
-                Relocate {moveTargetItem.type === 'file' ? 'Asset' : 'Directory'}
-              </h4>
-              <p className="text-xs text-slate-400 mt-1">
-                Select target vault node for <span className="font-semibold text-indigo-300">{moveTargetItem.name}</span>:
-              </p>
+      {!isLoading && subfolders.length === 0 && files.length === 0 && (
+         <div className="py-16 text-center space-y-3 glass-panel rounded-2xl p-6 border border-white/5">
+            <FolderPlus className="w-10 h-10 text-indigo-400 mx-auto stroke-[1.5]" />
+            <p className="text-zinc-300 text-sm font-medium">This node is empty.</p>
+            <button 
+              type="button"
+              onClick={() => setShowNewFolderModal(true)}
+              className="px-4 py-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 text-xs font-semibold hover:bg-indigo-500/30 transition-all inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <FolderPlus className="w-4 h-4" />
+              <span>Create Subfolder</span>
+            </button>
+         </div>
+      )}
+
+      {/* CREATE NEW FOLDER MODAL */}
+      {showNewFolderModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[9999] backdrop-blur-md animate-fadeInNative">
+          <div className="w-full max-w-[320px] glass-panel rounded-[20px] overflow-hidden animate-scalePop border border-white/10 p-5 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-indigo-500/20 rounded-xl text-indigo-400 border border-indigo-500/30">
+                <FolderPlus className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Create New Folder</h3>
+                <p className="text-xs text-zinc-400">Inside {breadcrumbs.length > 0 ? breadcrumbs[breadcrumbs.length - 1].name : 'Home'}</p>
+              </div>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Destination Node</label>
-              <select 
-                value={selectedDestId} 
-                onChange={(e) => setSelectedDestId(e.target.value)}
-                className="w-full h-11 px-3.5 rounded-xl bg-black border border-white/10 text-white text-xs font-semibold focus-glow transition-all focus:outline-none"
+            <input 
+              type="text"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              placeholder="Folder name..."
+              autoFocus
+              onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); }}
+              className="w-full h-11 px-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:border-indigo-500 focus:outline-none transition-colors"
+            />
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => { setShowNewFolderModal(false); setNewFolderName(''); }}
+                className="px-4 h-9 rounded-xl text-xs font-medium text-zinc-400 hover:text-white transition-colors cursor-pointer"
               >
-                <option value="root">🏠 Home (Root Node)</option>
-                {allFolders.map(folder => (
-                  <option key={folder.id} value={folder.id}>
-                    📁 {folder.name}
-                  </option>
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateFolder}
+                disabled={!newFolderName.trim() || isCreatingFolder}
+                className="px-4 h-9 rounded-xl bg-indigo-500 text-white text-xs font-semibold hover:bg-indigo-600 active:scale-95 disabled:opacity-50 transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                {isCreatingFolder ? 'Creating...' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MOVE ITEM MODAL */}
+      {showMoveModal && moveTarget && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[9999] backdrop-blur-md animate-fadeInNative">
+          <div className="w-full max-w-sm glass-panel rounded-[20px] overflow-hidden animate-scalePop border border-white/10 p-5 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-indigo-500/20 rounded-xl text-indigo-400 border border-indigo-500/30">
+                <FolderInput className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Move {moveTarget.type === 'folder' ? 'Folder' : 'File'}</h3>
+                <p className="text-xs text-zinc-400 truncate max-w-[220px]">Target: {moveTarget.name}</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-zinc-300">Select Destination Folder:</label>
+              <select
+                value={selectedMoveFolderId}
+                onChange={(e) => setSelectedMoveFolderId(e.target.value)}
+                className="w-full h-11 px-3 rounded-xl bg-zinc-900 border border-white/10 text-white text-sm focus:border-indigo-500 focus:outline-none transition-colors"
+              >
+                <option value="root">🏠 Home (Root)</option>
+                {allUserFolders.map(f => (
+                  <option key={f.id} value={f.id}>📁 /{f.name}</option>
                 ))}
               </select>
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-white/5">
-              <button 
-                onClick={() => { setShowMoveModal(false); setMoveTargetItem(null); }}
-                className="px-4 h-9 rounded-xl border border-white/10 text-slate-400 text-xs font-semibold hover:text-white transition-colors cursor-pointer"
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => { setShowMoveModal(false); setMoveTarget(null); }}
+                className="px-4 h-9 rounded-xl text-xs font-medium text-zinc-400 hover:text-white transition-colors cursor-pointer"
               >
                 Cancel
               </button>
-              <button 
-                onClick={handleMoveSubmit}
-                className="px-4 h-9 rounded-xl bg-indigo-500 text-white text-xs font-bold hover:bg-indigo-600 transition-colors shadow-lg shadow-indigo-500/20 cursor-pointer"
+              <button
+                type="button"
+                onClick={handleExecuteMove}
+                disabled={isMoving}
+                className="px-4 h-9 rounded-xl bg-indigo-500 text-white text-xs font-semibold hover:bg-indigo-600 active:scale-95 disabled:opacity-50 transition-all flex items-center gap-1.5 cursor-pointer"
               >
-                Move Asset
+                {isMoving ? 'Moving...' : 'Move Now'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Lightbox / Preview Modal */}
-      {previewFile && (
-        <div className="fixed inset-0 bg-black/95 flex flex-col z-[9999] backdrop-blur-md animate-fadeIn">
-          {/* Header */}
-          <div className="h-16 border-b border-white/5 flex items-center justify-between px-6 text-white select-none">
-            <div className="min-w-0">
-              <p className="text-xs font-bold truncate max-w-xs md:max-w-md">{previewFile.originalName}</p>
-              <p className="text-[10px] text-slate-400 mt-0.5">{formatBytes(previewFile.sizeBytes)} • {formatDate(previewFile.fileCreatedDate)}</p>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              <a 
-                href={`${window.location.origin}/files/${previewFile.id}/download?userName=${encodeURIComponent(userName)}`}
-                target="_blank"
-                rel="noreferrer"
-                className="px-4 h-9 rounded-xl bg-indigo-500 text-white text-xs font-bold hover:bg-indigo-600 transition-colors shadow-lg shadow-indigo-500/20 flex items-center gap-1.5 cursor-pointer decoration-none"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                Download Original
-              </a>
-              <button 
-                onClick={() => setPreviewFile(null)}
-                className="p-1.5 rounded-xl border border-white/10 hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer text-xs font-semibold"
-              >
-                ✕ Close
-              </button>
-            </div>
-          </div>
-
-          {/* Image display container */}
-          <div className="flex-grow w-full flex items-center justify-center p-6 min-h-0">
-            <img 
-              src={`${window.location.origin}/files/${previewFile.id}/view?userName=${encodeURIComponent(userName)}`}
-              alt={previewFile.originalName}
-              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-scaleIn border border-white/10"
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

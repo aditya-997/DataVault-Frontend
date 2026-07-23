@@ -1,136 +1,128 @@
 import React, { useState } from 'react';
-import { Lock } from 'lucide-react';
+import { Shield, Lock, Fingerprint } from 'lucide-react';
 
 export default function VaultGate({ onUnlock }) {
   const [userName, setUserName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [statusMsg, setStatusMsg] = useState('');
+  const [step, setStep] = useState(0); // 0: input, 1: verify, 2: tunnel, 3: decrypt
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!userName.trim()) return;
 
     setIsSubmitting(true);
-    
-    // Simulate security keyring verification to match the "100-fold UI/UX" premium feel
-    const stages = [
-      'Establishing secure tunnel...',
-      'Verifying keyring integrity...',
-      'Decrypting metadata nodes...',
-      'Access Granted!'
-    ];
+    setStep(1);
 
-    stages.forEach((msg, idx) => {
-      setTimeout(() => {
-        setStatusMsg(msg);
-        if (idx === stages.length - 1) {
-          setTimeout(() => {
-            onUnlock(userName.trim());
-          }, 400);
-        }
-      }, (idx + 1) * 400);
-    });
+    setTimeout(() => setStep(2), 800);
+    setTimeout(() => setStep(3), 1600);
+    setTimeout(() => {
+      onUnlock(userName.trim());
+    }, 2400);
   };
 
   return (
-    <div className="min-h-screen w-full bg-black flex items-center justify-center p-4 relative overflow-hidden font-sans">
-      {/* Base dark background with gradient */}
-      <div className="absolute inset-0 bg-gradient-to-b from-slate-950 via-[#0a0a0a] to-slate-900" />
+    <div className="min-h-screen w-full flex flex-col items-center justify-center relative overflow-hidden font-sans">
+      
+      {/* Subtle top-center ambient bloom */}
+      <div className="absolute top-[-10%] left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-indigo-500/10 rounded-[100%] blur-[100px] pointer-events-none" />
 
-      {/* Animated gradient background elements */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {/* Primary gradient orb - top left */}
-        <div className="absolute top-[-100px] left-[-100px] w-[500px] h-[500px] bg-gradient-to-br from-indigo-500/20 via-cyan-500/5 to-transparent rounded-full blur-[100px] animate-float" />
-        
-        {/* Accent gradient orb - bottom right */}
-        <div className="absolute bottom-[-150px] right-[-100px] w-[600px] h-[600px] bg-gradient-to-t from-cyan-500/15 via-indigo-500/5 to-transparent rounded-full blur-[120px] animate-float" style={{ animationDelay: '2s' }} />
-        
-        {/* Subtle grid pattern */}
-        <div 
-          className="absolute inset-0 opacity-[0.02]"
-          style={{
-            backgroundImage: `linear-gradient(0deg, transparent 24%, rgba(85, 136, 255, 0.08) 25%, rgba(85, 136, 255, 0.08) 26%, transparent 27%, transparent 74%, rgba(85, 136, 255, 0.08) 75%, rgba(85, 136, 255, 0.08) 76%, transparent 77%, transparent), linear-gradient(90deg, transparent 24%, rgba(85, 136, 255, 0.08) 25%, rgba(85, 136, 255, 0.08) 26%, transparent 27%, transparent 74%, rgba(85, 136, 255, 0.08) 75%, rgba(85, 136, 255, 0.08) 76%, transparent 77%, transparent)`,
-            backgroundSize: '60px 60px',
-          }}
-        />
+      {/* Top Logo */}
+      <div className="absolute top-[max(48px,env(safe-area-inset-top))] left-0 right-0 flex justify-center items-center gap-2 animate-fadeIn">
+        <Shield className="w-4 h-4 text-zinc-400" />
+        <span className="text-white font-semibold tracking-wide">DataVault</span>
       </div>
 
-      <div className="w-full max-w-md space-y-8 relative z-10">
-        {/* Logo/Icon - 3D */}
-        <div className="flex justify-center" style={{ perspective: '1200px' }}>
-          <div className="relative animate-rotateIn3D">
-            <div className="absolute inset-0 animate-pulseGlow rounded-3xl" />
-            <div className="relative bg-gradient-to-br from-indigo-500 via-cyan-400 to-blue-600 rounded-3xl p-6 shadow-2xl card-3d backdrop-blur-sm">
-              <div className="relative transform transition-transform duration-500 hover:scale-115">
-                <Lock className="w-14 h-14 text-white drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)]" />
-              </div>
-            </div>
+      <div className="w-full max-w-[340px] px-6 space-y-8 relative z-10 animate-fadeInUp">
+        
+        {/* Shield Icon */}
+        <div className="flex justify-center">
+          <div className="relative w-24 h-28 animate-shieldFloat">
+            {/* Base shape */}
+            <div className="absolute inset-0 bg-white/10 rounded-xl transform rotate-45 scale-75 opacity-0"></div>
+            {/* SVG Shield */}
+            <svg viewBox="0 0 100 120" className="w-full h-full drop-shadow-2xl">
+              <path 
+                d="M50 5 L90 20 L90 60 C90 90 50 115 50 115 C50 115 10 90 10 60 L10 20 Z" 
+                fill="rgba(255,255,255,0.05)" 
+                stroke="rgba(255,255,255,0.2)" 
+                strokeWidth="1.5"
+              />
+              <path 
+                d="M50 12 L82 25 L82 58 C82 82 50 103 50 103 C50 103 18 82 18 58 L18 25 Z" 
+                fill="transparent" 
+                stroke="rgba(99, 102, 241, 0.4)" 
+                strokeWidth="2"
+                style={{ filter: 'drop-shadow(0 0 12px rgba(99,102,241,0.3))' }}
+              />
+              {/* Center line for depth */}
+              <path d="M50 12 L50 103" stroke="#27272a" strokeWidth="1" />
+            </svg>
           </div>
         </div>
 
-        {/* Title */}
-        <div className="text-center space-y-3 animate-fadeInDown">
-          <h1 className="text-4xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-200 to-indigo-400 bg-clip-text text-transparent drop-shadow-lg">
-            Data<span className="text-indigo-400">Vault</span>
-          </h1>
-          <p className="text-slate-400 text-sm tracking-wide">
-            Secure, organized repository for your valuable assets
-          </p>
+        {/* Welcome Text */}
+        <div className="text-center space-y-1.5">
+          <h1 className="text-3xl font-semibold text-white tracking-tight">Welcome back</h1>
+          <p className="text-zinc-400 text-sm">Your vault is encrypted and waiting</p>
         </div>
 
-        {/* Form Container - Glassmorphism */}
-        <div className="glass-glow rounded-3xl p-8 space-y-6 animate-fadeInUp">
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="space-y-2.5">
-              <label htmlFor="username" className="text-xs font-bold text-slate-400 uppercase tracking-widest block">
-                Vault Identity Key
-              </label>
-              <div className="relative group">
-                <input
-                  id="username"
-                  type="text"
-                  placeholder="Enter vault username"
-                  value={userName}
-                  onChange={(e) => setUserName(e.target.value)}
-                  disabled={isSubmitting}
-                  className="w-full h-12 px-4 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-500 focus-glow focus:border-indigo-500/50 transition-all duration-300 focus:outline-none"
-                  autoFocus
-                  required
-                />
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-semibold">
-                  {userName.trim().length > 0 && '👤'}
-                </div>
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-3">
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                <Lock className="h-4 w-4 text-zinc-500" />
               </div>
+              <input
+                type="text"
+                value={userName}
+                onChange={(e) => setUserName(e.target.value)}
+                disabled={isSubmitting}
+                placeholder="Access Key"
+                className="w-full h-[52px] pl-10 pr-12 rounded-xl bg-white/5 border border-white/20 text-white placeholder-zinc-500 font-medium transition-all focus:border-indigo-500 focus:outline-none"
+                autoFocus
+              />
+              <button 
+                type="button"
+                className="absolute inset-y-0 right-1 px-3 flex items-center justify-center text-zinc-500 hover:text-indigo-400 transition-colors"
+                disabled={isSubmitting}
+              >
+                <Fingerprint className="w-5 h-5" />
+              </button>
             </div>
 
-            {isSubmitting && statusMsg && (
-              <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl animate-fadeInUp backdrop-blur-sm">
-                <p className="text-xs text-indigo-400 font-medium text-center tracking-wide">{statusMsg}</p>
-              </div>
-            )}
+          </div>
 
-            <button
-              type="submit"
-              disabled={isSubmitting || !userName.trim()}
-              className="w-full h-12 rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-500 hover:from-indigo-600 hover:to-cyan-600 text-white font-bold uppercase tracking-wider transition-all duration-300 shadow-lg hover:shadow-indigo-500/30 disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
-            >
-              {isSubmitting ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  Decrypting...
-                </span>
-              ) : (
-                'Unlock Vault'
-              )}
-            </button>
-          </form>
+          <button
+            type="submit"
+            disabled={isSubmitting || !userName.trim()}
+            className="w-full h-[52px] mt-2 bg-indigo-600 hover:bg-indigo-500 border border-indigo-500 text-white font-semibold rounded-xl flex items-center justify-center text-[15px] transition-colors"
+          >
+            Authenticate
+          </button>
+        </form>
+
+        {/* Progress Sequence */}
+        <div className="pt-2 flex flex-col items-center justify-center h-8">
+          {isSubmitting && (
+            <div className="flex items-center gap-2 text-xs text-zinc-400 animate-fadeIn">
+              <span className={`flex items-center gap-1 ${step >= 1 ? 'text-indigo-400' : ''}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${step >= 1 ? 'bg-indigo-400' : 'bg-zinc-700'}`} /> Verify
+              </span>
+              <span className="w-3 h-px bg-zinc-700" />
+              <span className={`flex items-center gap-1 ${step >= 2 ? 'text-indigo-400' : ''}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${step >= 2 ? 'bg-indigo-400' : 'bg-zinc-700'}`} /> Tunnel
+              </span>
+              <span className="w-3 h-px bg-zinc-700" />
+              <span className={`flex items-center gap-1 ${step >= 3 ? 'text-indigo-400' : ''}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${step >= 3 ? 'bg-indigo-400' : 'bg-zinc-700'}`} /> Decrypt
+              </span>
+            </div>
+          )}
         </div>
 
-        {/* Footer */}
-        <p className="text-center text-[10px] text-slate-500 uppercase tracking-widest font-semibold">
-          🔐 Zero Knowledge Encryption • 🚀 Deduplicated Files • 🛡️ Guard Active
-        </p>
       </div>
+
     </div>
   );
 }

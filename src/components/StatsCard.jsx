@@ -1,123 +1,171 @@
 import React from 'react';
-import { Database, HardDrive, ShieldCheck, FileSpreadsheet, Image, FileText, Code2, FolderArchive } from 'lucide-react';
+import { Zap } from 'lucide-react';
 
 export default function StatsCard({ files = [] }) {
   const totalFiles = files.length;
-  
-  // Calculate total size
   const totalSizeBytes = files.reduce((acc, curr) => acc + (curr.sizeBytes || 0), 0);
+  const maxStorage = 100 * 1024 * 1024 * 1024; // 100GB mock max
+  const usagePercent = Math.min((totalSizeBytes / maxStorage) * 100, 100) || 0;
   
   const formatBytes = (bytes) => {
-    if (bytes === 0) return '0 Bytes';
+    if (bytes === 0) return '0 GB';
     const k = 1024;
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
-  // Group files by type
   const categories = {
-    images: { label: 'Images', count: 0, size: 0, color: 'bg-emerald-500', text: 'text-emerald-400', icon: Image },
-    docs: { label: 'Documents', count: 0, size: 0, color: 'bg-cyan-500', text: 'text-cyan-400', icon: FileText },
-    data: { label: 'Data & Sheets', count: 0, size: 0, color: 'bg-indigo-500', text: 'text-indigo-400', icon: FileSpreadsheet },
-    code: { label: 'Code', count: 0, size: 0, color: 'bg-amber-500', text: 'text-amber-400', icon: Code2 },
-    others: { label: 'Others', count: 0, size: 0, color: 'bg-slate-500', text: 'text-slate-400', icon: FolderArchive },
+    images: { label: 'Images', size: 0, color: 'bg-emerald-500' },
+    docs: { label: 'Documents', size: 0, color: 'bg-indigo-500' },
+    code: { label: 'Code files', size: 0, color: 'bg-amber-500' },
+    others: { label: 'Others', size: 0, color: 'bg-zinc-700' },
   };
 
   files.forEach(f => {
     const ext = f.originalName?.split('.').pop()?.toLowerCase() || '';
-    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) {
-      categories.images.count++;
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) {
       categories.images.size += f.sizeBytes || 0;
-    } else if (['pdf', 'doc', 'docx', 'txt', 'rtf', 'ppt', 'pptx'].includes(ext)) {
-      categories.docs.count++;
+    } else if (['pdf', 'doc', 'docx', 'txt'].includes(ext)) {
       categories.docs.size += f.sizeBytes || 0;
-    } else if (['xls', 'xlsx', 'csv'].includes(ext)) {
-      categories.data.count++;
-      categories.data.size += f.sizeBytes || 0;
-    } else if (['js', 'ts', 'tsx', 'jsx', 'py', 'java', 'cpp', 'c', 'go', 'rs', 'json', 'html', 'css'].includes(ext)) {
-      categories.code.count++;
+    } else if (['js', 'ts', 'jsx', 'json', 'html', 'css'].includes(ext)) {
       categories.code.size += f.sizeBytes || 0;
     } else {
-      categories.others.count++;
       categories.others.size += f.sizeBytes || 0;
     }
   });
 
-  // Calculate deduplication estimate (e.g., mock 25% savings for visual storytelling, or baseline)
   const savedRatio = totalFiles > 0 ? 0.28 : 0;
   const savedBytes = totalSizeBytes * savedRatio;
 
+  // Render SVG Arc for Storage Used
+  const radius = 36;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference - (usagePercent / 100) * (circumference / 2); 
+  // It's a semi-circle so we only stroke half
+
   return (
-    <div className="space-y-4 p-5 glass-premium rounded-2xl animate-fadeInUp">
-      {/* Title */}
-      <div className="flex items-center justify-between border-b border-white/5 pb-2">
-        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-          <Database className="w-3.5 h-3.5 text-primary" />
-          Vault Metrics
-        </h4>
-        <span className="text-[10px] font-medium bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/20 flex items-center gap-1 animate-pulse">
-          <ShieldCheck className="w-2.5 h-2.5" />
-          Synced
-        </span>
-      </div>
-
-      {/* Main Grid Stats */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="p-3 bg-white/3 border border-white/5 rounded-xl flex flex-col justify-between">
-          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Total Files</span>
-          <span className="text-2xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent mt-1">{totalFiles}</span>
-        </div>
-        <div className="p-3 bg-white/3 border border-white/5 rounded-xl flex flex-col justify-between">
-          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Storage Size</span>
-          <span className="text-2xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent mt-1 truncate" title={formatBytes(totalSizeBytes)}>
-            {formatBytes(totalSizeBytes).split(' ')[0]} 
-            <span className="text-xs font-medium ml-1 text-slate-400">{formatBytes(totalSizeBytes).split(' ')[1] || ''}</span>
-          </span>
-        </div>
-      </div>
-
-      {/* Deduplication Metric */}
-      {totalFiles > 0 && (
-        <div className="p-3 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/15 rounded-xl flex items-center gap-3">
-          <HardDrive className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-          <div className="min-w-0">
-            <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Deduplication Savings</p>
-            <p className="text-sm font-semibold text-white mt-0.5">
-              Saved ~{formatBytes(savedBytes)} <span className="text-[11px] font-normal text-emerald-400/80">(28% compression ratio)</span>
-            </p>
+    <div className="space-y-8 animate-fadeIn">
+      
+      {/* Top 3 Cards Row */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        
+        {/* Storage Used Card */}
+        <div className="bg-[#0a0a0a] border border-white/5 rounded-2xl p-5 flex flex-col justify-between">
+          <div className="flex justify-between items-start mb-6">
+            <span className="text-sm font-medium text-zinc-400">Storage Used</span>
+          </div>
+          <div className="relative h-16 w-full flex items-end justify-start overflow-hidden">
+             {/* Arc Chart */}
+             <svg className="absolute left-0 bottom-0 w-24 h-24 -translate-x-2 translate-y-6" viewBox="0 0 100 100">
+               <path 
+                 d="M 10 50 A 40 40 0 0 1 90 50" 
+                 fill="none" stroke="#27272a" strokeWidth="6" strokeLinecap="round"
+               />
+               <path 
+                 d="M 10 50 A 40 40 0 0 1 90 50" 
+                 fill="none" stroke="#6366f1" strokeWidth="6" strokeLinecap="round"
+                 strokeDasharray={circumference}
+                 strokeDashoffset={circumference - ((Math.max(usagePercent, 2) / 100) * (circumference/2))}
+                 className="transition-all duration-1000 ease-out"
+               />
+             </svg>
+             <div className="pl-1 z-10">
+               <div className="text-3xl font-semibold text-white">
+                 {formatBytes(totalSizeBytes).split(' ')[0]}<span className="text-xl text-zinc-400 ml-1">{formatBytes(totalSizeBytes).split(' ')[1]}</span>
+               </div>
+               <div className="text-[11px] text-zinc-500 mt-1">of 100 GB</div>
+             </div>
           </div>
         </div>
-      )}
 
-      {/* Categories Breakdown */}
+        {/* Total Files Card */}
+        <div className="bg-[#0a0a0a] border border-white/5 rounded-2xl p-5 flex flex-col justify-between">
+          <span className="text-sm font-medium text-zinc-400 mb-6 block">Total Files</span>
+          <div>
+            <div className="text-3xl font-semibold text-white">{totalFiles.toLocaleString()}</div>
+            <div className="text-[11px] font-medium text-emerald-400 mt-1">
+               ↑ {Math.floor(totalFiles * 0.1) || 0} this week
+            </div>
+          </div>
+        </div>
+
+        {/* Space Saved Card */}
+        <div className="bg-[#0a0a0a] border border-white/5 rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden">
+          <div className="flex justify-between items-start mb-6">
+            <span className="text-sm font-medium text-zinc-400">Space Saved</span>
+            <Zap className="w-4 h-4 text-indigo-400" />
+          </div>
+          <div>
+            <div className="text-3xl font-semibold text-white">
+              {formatBytes(savedBytes).split(' ')[0]}<span className="text-xl text-zinc-400 ml-1">{formatBytes(savedBytes).split(' ')[1]}</span>
+            </div>
+            <div className="text-[11px] text-zinc-500 mt-1">via deduplication</div>
+          </div>
+        </div>
+
+      </div>
+
+      {/* Storage Breakdown Bar */}
       {totalFiles > 0 && (
-        <div className="space-y-2 pt-2">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Distribution</span>
-          <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
-            {Object.entries(categories)
-              .filter(([_, cat]) => cat.count > 0)
-              .map(([key, cat]) => {
-                const percentage = totalSizeBytes > 0 ? (cat.size / totalSizeBytes) * 100 : 0;
-                const Icon = cat.icon;
+        <div className="space-y-4">
+          <h3 className="text-sm font-medium text-zinc-300">Storage breakdown</h3>
+          
+          {/* Segmented Bar */}
+          <div className="h-2.5 w-full flex rounded-full overflow-hidden gap-[2px]">
+             {Object.entries(categories).map(([key, cat]) => {
+               const pct = totalSizeBytes ? (cat.size / totalSizeBytes) * 100 : 0;
+               if (pct === 0) return null;
+               return (
+                 <div key={key} className={`h-full ${cat.color}`} style={{ width: `${pct}%` }} />
+               );
+             })}
+          </div>
+
+          {/* Legend Grid */}
+          <div className="grid grid-cols-2 gap-4 border border-white/5 rounded-xl p-4 bg-[#080808]">
+             {Object.entries(categories).map(([key, cat]) => {
+                const pct = totalSizeBytes ? (cat.size / totalSizeBytes) * 100 : 0;
                 return (
-                  <div key={key} className="space-y-1">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="flex items-center gap-1 text-slate-300 font-medium">
-                        <Icon className={`w-3.5 h-3.5 ${cat.text}`} />
-                        {cat.label}
-                      </span>
-                      <span className="text-slate-400 font-semibold">{cat.count} files ({percentage.toFixed(0)}%)</span>
+                  <div key={key} className="flex items-center justify-between border-b border-white/5 pb-2 last:border-0">
+                    <div className="flex items-center gap-2">
+                       <span className={`w-2 h-2 rounded-full ${cat.color}`} />
+                       <span className="text-sm text-zinc-300">{cat.label}</span>
                     </div>
-                    <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                      <div className={`h-full ${cat.color} rounded-full`} style={{ width: `${percentage}%` }}></div>
-                    </div>
+                    <span className="text-sm text-zinc-400">{pct.toFixed(0)}%</span>
                   </div>
                 );
-              })}
+             })}
           </div>
         </div>
       )}
+
+      {/* Mock Activity Chart (CSS driven representation) */}
+      <div className="space-y-4">
+         <h3 className="text-sm font-medium text-zinc-300">Upload activity</h3>
+         <div className="h-40 border-b border-white/5 relative flex items-end">
+            <svg className="absolute inset-0 w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 100">
+               <defs>
+                 <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                   <stop offset="0%" stopColor="rgba(99,102,241,0.2)" />
+                   <stop offset="100%" stopColor="rgba(99,102,241,0)" />
+                 </linearGradient>
+               </defs>
+               <path d="M0,70 Q20,30 40,60 T70,40 T100,20 L100,100 L0,100 Z" fill="url(#chartGrad)" />
+               <path d="M0,70 Q20,30 40,60 T70,40 T100,20" fill="none" stroke="#6366f1" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+            </svg>
+            <div className="w-full flex justify-between text-[10px] text-zinc-600 absolute -bottom-5">
+              <span>1 day</span>
+              <span>2 day</span>
+              <span>3 day</span>
+              <span>4 day</span>
+              <span>5 day</span>
+              <span>6 day</span>
+              <span>7 day</span>
+            </div>
+         </div>
+      </div>
+
     </div>
   );
 }
